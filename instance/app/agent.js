@@ -228,7 +228,7 @@ async function connecterClaude(brut, compte) {
 
 const DUREE_CONNEXION = 10 * 60 * 1000;  // processus arrêté au bout de 10 minutes sans code
 const DUREE_LIEN = 45 * 1000;            // temps maximum pour obtenir le lien
-const DUREE_CODE = 60 * 1000;            // temps maximum pour échanger le code contre la clé
+const DUREE_CODE = 90 * 1000;            // temps maximum pour échanger le code contre la clé
 const DEBUT_LIEN = 'https://claude.com/cai/oauth/authorize';
 const MSG_CODE_REFUSE = 'Le code n\'a pas été accepté : recommencez.';
 
@@ -323,7 +323,7 @@ async function finirConnexion(brut, compte) {
   const resultat = await new Promise((resolve) => {
     let fini = false;
     const conclure = (r) => { if (!fini) { fini = true; clearTimeout(delai); c.attente = null; resolve(r); } };
-    const delai = setTimeout(() => conclure({ raison: 'delai' }), DUREE_CODE);
+    const delai = setTimeout(() => { const t = texteSansEchappements(c.sortie.slice(depart)).replace(/sk-ant-[A-Za-z0-9_-]+/g, '[CLE]').replace(/[A-Za-z0-9_#-]{25,}/g, '[LONG]'); console.log('Connexion Claude : sortie apres le code (masquee) : ' + JSON.stringify(t.slice(-600))); conclure({ raison: 'delai' }); }, DUREE_CODE);
     c.attente = () => {
       const t = texteSansEchappements(c.sortie.slice(depart));
       const m = t.match(/sk-ant-oat01-[A-Za-z0-9_-]{20,}/);
@@ -339,7 +339,7 @@ async function finirConnexion(brut, compte) {
       if (/oauth error|wasn't accepted|press enter to retry|invalid|expired/i.test(t)) return conclure({ raison: 'refuse' });
       if (c.fini) conclure({ raison: 'refuse' });
     };
-    c.proc.stdin.write(code + '\r');
+    c.proc.stdin.write(code); setTimeout(() => { if (!c.fini) c.proc.stdin.write('\r'); }, 700);
   });
   // Dans tous les cas, le processus a fini son travail : on l'arrête.
   if (connexion === c) arreterConnexion(); else tuer(c.proc);
