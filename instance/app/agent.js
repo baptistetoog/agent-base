@@ -10,6 +10,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const espace = require('./espace');
+const skills = require('./skills');
 
 const RACINE = path.resolve(__dirname, '..');
 const DOSSIER_AGENT = path.join(RACINE, 'agent');
@@ -25,6 +26,13 @@ const DUREE_TEST = 90 * 1000;          // test d'une clé
 const PREFIXE = 'sk-ant-oat01-';
 const MAX_MESSAGES_RENVOYES = 300;
 
+// Serveur MCP d'approbation (app/mcp-approbation.js) : Claude Code refuse toujours que l'agent écrive
+// dans son dossier .claude/ ; ce serveur dit « oui » uniquement pour agent/.claude/skills/<id>/SKILL.md
+// avec un en-tête valide, « non » à tout le reste. Les règles deny passent avant lui.
+const MCP_APPROBATION = JSON.stringify({
+  mcpServers: { approbation: { type: 'stdio', command: process.execPath, args: [path.join(__dirname, 'mcp-approbation.js')] } },
+});
+
 // Options communes à chaque lancement de l'agent.
 const OPTIONS_AGENT = [
   '-p',
@@ -34,6 +42,8 @@ const OPTIONS_AGENT = [
   '--model', 'sonnet',
   '--setting-sources', 'project',
   '--strict-mcp-config',
+  '--mcp-config', MCP_APPROBATION,
+  '--permission-prompt-tool', 'mcp__approbation__approuver',
   '--permission-mode', 'acceptEdits',
   '--allowedTools', 'Read', 'Glob', 'Grep', 'WebSearch', 'WebFetch', 'Skill',
   '--disallowedTools', 'Bash', 'Task', 'Agent', 'NotebookEdit',
@@ -418,7 +428,7 @@ function changerStatut(e, extra = {}) {
 
 const OUTILS = {
   Read: 'Lit un fichier', Glob: 'Cherche des fichiers', Grep: 'Cherche dans les fichiers',
-  WebSearch: 'Cherche sur le web', WebFetch: 'Lit une page web', Skill: 'Utilise une compétence',
+  WebSearch: 'Cherche sur le web', WebFetch: 'Lit une page web', Skill: 'Applique un skill',
   Write: 'Écrit un fichier', Edit: 'Modifie un fichier', MultiEdit: 'Modifie un fichier',
   TodoWrite: 'Organise son travail', LS: 'Regarde un dossier',
 };
@@ -439,7 +449,7 @@ function phraseOutil(nom, entree) {
     case 'WebFetch': {
       try { return `Je lis ${new URL(e.url).hostname}…`; } catch { return 'Je lis une page web…'; }
     }
-    case 'Skill': return (e.skill || e.command) ? `J'utilise la compétence ${court(e.skill || e.command, 30)}…` : 'J\'utilise une compétence…';
+    case 'Skill': return (e.skill || e.command) ? `J'applique le skill ${court(e.skill || e.command, 30)}…` : 'J\'applique un skill…';
     case 'TodoWrite': return 'Je fais ma liste…';
     default: return 'Je travaille…';
   }
@@ -453,13 +463,17 @@ function majOutil(c, id, nom, entree) {
   } else if (entree && Object.keys(entree).length) {
     o.detail = phraseOutil(nom, entree);
   }
+  // Le skill réellement utilisé (outil Skill) est gardé dans l'historique.
+  if (nom === 'Skill' && entree && (entree.skill || entree.command)) o.skill = String(entree.skill || entree.command).replace(/^\//, '');
+  // L'agent a écrit un skill : la section Skills se mettra à jour.
+  if (/^(Write|Edit|MultiEdit)$/.test(nom) && entree && skills.estFichierSkill(entree.file_path)) c.skillsModifies = true;
   // Un fichier créé ou modifié dans work/ : la bulle affichera sa carte « Télécharger ».
   if (/^(Write|Edit|MultiEdit)$/.test(nom) && entree && entree.file_path) {
     const f = espace.nomDansWork(entree.file_path);
     if (f && !c.fichiers.includes(f)) c.fichiers.push(f);
   }
   changerStatut('outil', { detail: o.detail, libelle: o.libelle });
-  diffuser('outils', { id: c.id, outils: c.outils.map(({ nom: n, libelle, detail }) => ({ nom: n, libelle, detail })) });
+  diffuser('outils', { id: c.id, outils: c.outils.map(({ nom: n, libelle, detail, skill }) => ({ nom: n, libelle, detail, skill })) });
 }
 
 function traiterLigne(c, ligne) {
@@ -596,7 +610,7 @@ function terminer(c) {
     type: 'message', id: c.id, discussion: c.discussion, role: 'agent',
     quand: maintenant(), debut: new Date(c.debut).toISOString(), pour: c.travail.entree.id,
     qui: { nom: NOM_AGENT }, texte,
-    outils: c.outils.map(({ nom, libelle, detail }) => ({ nom, libelle, detail })),
+    outils: c.outils.map(({ nom, libelle, detail, skill }) => ({ nom, libelle, detail, skill })),
     fichiers: c.fichiers.filter((f) => espace.existe('work', f)),
     dureeMs: Date.now() - c.debut,
     coutUSD: c.resultat && typeof c.resultat.total_cost_usd === 'number' ? c.resultat.total_cost_usd : null,
@@ -605,6 +619,7 @@ function terminer(c) {
   try { ajouterHistorique(entree); } catch (e) { console.error('Historique :', e.message); }
   etat.courant = null;
   diffuser('fin', entree);
+  if (c.skillsModifies) diffuser('skills', {});
   changerStatut(statutFin === 'ok' ? 'fini' : 'repos');
   if (etat.file.length) return setImmediate(suivant);
   minuterieRepos = setTimeout(() => { if (!etat.courant) changerStatut('repos'); }, 4000);
@@ -727,12 +742,19 @@ function init(options) {
   chargerEtat();
 }
 
-function envoyer(texte, compte, fichier) {
+function envoyer(texte, compte, fichier, skill) {
   let t = String(texte || '').replace(/\r\n/g, '\n').trim();
   if (fichier && !espace.existe('documents', fichier)) return { code: 400, erreur: 'Le fichier joint est introuvable : joignez-le de nouveau.' };
+  // Skill choisi avec le bouton « / » : identifiant nettoyé, et il doit exister.
+  if (skill !== null && skill !== undefined && skill !== '') {
+    skill = skills.nettoyerId(skill);
+    if (!skill || !skills.existe(skill)) return { code: 400, erreur: 'Ce skill n\'existe plus : choisissez-en un autre.' };
+  } else skill = null;
   if (!t && fichier) t = 'Voici un fichier.';
+  if (!t && skill) t = 'Voici ma demande.';
   if (!t) return { code: 400, erreur: 'Le message est vide.' };
   if (fichier) t += `\n\nFichier joint : documents/${fichier}`;
+  if (skill) t += `\n\nApplique le skill ${skill}.`;
   if (t.length > 20000) return { code: 413, erreur: 'Message trop long (20 000 caractères au maximum).' };
   if (!lireJeton()) {
     if (compte.role === 'admin') return { code: 409, erreur: 'Claude n\'est pas encore connecté : collez votre clé dans « Connecter Claude ».', connecter: true };
@@ -744,6 +766,7 @@ function envoyer(texte, compte, fichier) {
     quand: maintenant(), qui: { email: compte.email, nom: compte.nom }, texte: t,
   };
   if (fichier) entree.fichier = fichier;
+  if (skill) entree.skill = skill;
   ajouterHistorique(entree);
   diffuser('message', entree);
   const occupe = Boolean(etat.courant);
@@ -775,7 +798,7 @@ function nouvelleDiscussion(compte) {
 function enCours() {
   const c = etat.courant;
   if (!c || c.discussion !== etat.discussion) return null;
-  return { id: c.id, pour: c.travail.entree.id, texte: c.texte, outils: c.outils.map(({ nom, libelle, detail }) => ({ nom, libelle, detail })) };
+  return { id: c.id, pour: c.travail.entree.id, texte: c.texte, outils: c.outils.map(({ nom, libelle, detail, skill }) => ({ nom, libelle, detail, skill })) };
 }
 
 function discussion() {

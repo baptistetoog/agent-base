@@ -371,8 +371,17 @@ function elementMessage(m) {
     for (const f of (m.fichiers || [])) bulle.append(carteFichier('work', f));
   } else {
     let texte = m.texte || '';
+    if (m.skill) {
+      texte = texte.replace(/\n*Applique le skill [a-z0-9-]+\.\s*$/, '').trim();
+      if (texte === 'Voici ma demande.') texte = '';
+      const tag = el('span', 'etiquette-skill');
+      tag.title = 'Skill appliqué à ce message';
+      tag.innerHTML = '<svg class="icone" aria-hidden="true"><use href="#i-skill"/></svg>';
+      tag.append(el('span', '', m.skill));
+      bulle.append(tag);
+    }
     if (m.fichier) texte = texte.replace(/\n*Fichier joint : documents\/[^\n]*$/, '').trim();
-    if (texte) bulle.append(document.createTextNode(texte));
+    if (texte) bulle.append(el('span', 'bulle-texte', texte));
     if (m.fichier) bulle.append(carteFichier('documents', m.fichier));
   }
   let meta = heure(m.quand);
@@ -504,6 +513,7 @@ async function chargerDiscussion() {
 async function envoyer(texte) {
   const t = String(texte || '').trim();
   const piece = app.pieceJointe;
+  const skill = sk.choisi;
   if (!t && !piece) return;
   if (!app.claude.connecte) {
     if (estAdmin()) { toast('Connectez d\'abord Claude pour que l\'agent puisse répondre.', 'attention'); ouvrirFenetreClaude(); }
@@ -529,13 +539,16 @@ async function envoyer(texte) {
     retirerPiece();
   }
   if (app.bureau) app.bureau.statut('message');
+  basculerMenuSkills(false);
+  choisirSkill(null);
   try {
-    const r = await api('/api/message', { corps: { texte: t, fichier } });
+    const r = await api('/api/message', { corps: { texte: t, fichier, skill } });
     ajouterMessage(r.message);
     defiler(true);
     if (r.enAttente) toast(`L'agent termine son travail en cours : votre message passe ensuite (${r.enAttente} en attente).`);
   } catch (e) {
     if (!zone.value) { zone.value = t; ajusterZone(); }
+    if (skill && sk.liste.some((s) => s.id === skill)) choisirSkill(skill);
     toast(e.message, 'erreur');
     if (e.donnees && e.donnees.connecter) ouvrirFenetreClaude();
     appliquerStatut(app.statut);
@@ -913,13 +926,237 @@ async function garderProposition() {
 // Aller à une section des Réglages (depuis la mise en route ou le menu).
 function allerA(cible) {
   choisirOnglet('reglages');
-  const section = cible === 'fichiers' ? $('#sectionFichiers') : $('#sectionContexte');
+  const section = cible === 'fichiers' ? $('#sectionFichiers') : (cible === 'skills' ? $('#sectionSkills') : $('#sectionContexte'));
   if (cible === 'contexte') choisirSous('contexte');
   // On fait défiler la colonne des Réglages seulement (jamais la page entière).
   requestAnimationFrame(() => {
     const vue = $('#vueReglages');
     vue.scrollTo({ top: section.offsetTop - vue.offsetTop - 12, behavior: 'smooth' });
   });
+}
+
+// ---------- Skills ----------
+// Les savoir-faire de l'agent (agent/.claude/skills/<identifiant>/SKILL.md).
+// Tout le monde les lit ; un admin les crée, les modifie, les supprime.
+// Le bouton « / » de la discussion en impose un au prochain message.
+
+const sk = { liste: [], admin: false, choisi: null, edition: null, actif: 0 };
+
+// Même nettoyage que le serveur (app/skills.js) : minuscules, chiffres, tirets.
+function idSkill(brut) {
+  return String(brut || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60).replace(/-+$/g, '');
+}
+
+async function chargerSkills() {
+  try {
+    const d = await api('/api/skills');
+    sk.liste = d.skills || [];
+    sk.admin = Boolean(d.admin);
+    rendreSkills();
+    if (sk.choisi && !sk.liste.some((s) => s.id === sk.choisi)) choisirSkill(null);
+    if (!$('#menuSkills').hidden) rendreMenuSkills();
+  } catch { /* rien */ }
+}
+
+function rendreSkills() {
+  const ul = $('#listeSkills');
+  ul.replaceChildren();
+  if (!sk.liste.length) {
+    listeVide(ul, 'Aucun skill pour l\'instant', sk.admin ? 'Créez une première méthode avec « Nouveau skill », ou demandez à l\'agent : « fais-en un skill ».' : 'Un admin peut en créer.');
+    return;
+  }
+  for (const s of sk.liste) {
+    const li = el('li', 'skill');
+    const ouvrir = el('button', 'skill-ouvrir');
+    ouvrir.type = 'button';
+    ouvrir.setAttribute('aria-label', (sk.admin ? 'Modifier le skill ' : 'Lire le skill ') + s.id);
+    const icone = el('span', 'skill-icone');
+    icone.innerHTML = '<svg class="icone" aria-hidden="true"><use href="#i-skill"/></svg>';
+    const infos = el('span', 'skill-infos');
+    infos.append(el('span', 'skill-nom', s.id), el('span', 'skill-description', s.description || 'Sans description'));
+    ouvrir.append(icone, infos);
+    ouvrir.addEventListener('click', () => ouvrirSkill(s.id));
+    li.append(ouvrir);
+    if (sk.admin) {
+      const actions = el('span', 'fichier-actions');
+      const m = el('button', 'bouton-icone');
+      m.type = 'button'; m.title = 'Modifier'; m.setAttribute('aria-label', 'Modifier ' + s.id);
+      m.innerHTML = '<svg class="icone"><use href="#i-crayon"/></svg>';
+      m.addEventListener('click', () => ouvrirSkill(s.id));
+      const x = el('button', 'bouton-icone bouton-danger');
+      x.type = 'button'; x.title = 'Supprimer'; x.setAttribute('aria-label', 'Supprimer ' + s.id);
+      x.innerHTML = '<svg class="icone"><use href="#i-poubelle"/></svg>';
+      x.addEventListener('click', () => supprimerSkill(s.id));
+      actions.append(m, x);
+      li.append(actions);
+    }
+    ul.append(li);
+  }
+}
+
+function vueMethode(v) {
+  $$('[data-skill-vue]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.skillVue === v)));
+  const apercu = v === 'apercu';
+  $('#champSkillMethode').hidden = apercu;
+  $('#apercuSkill').hidden = !apercu;
+  if (apercu) {
+    const t = $('#champSkillMethode').value;
+    $('#apercuSkill').innerHTML = t.trim() ? markdownEnHTML(t) : '<p class="vide">Rien à afficher pour l\'instant.</p>';
+  }
+}
+
+function ajusterDescription() {
+  const z = $('#champSkillDescription');
+  z.style.height = 'auto';
+  z.style.height = Math.min(z.scrollHeight + 2, 160) + 'px';
+}
+
+function majAideNom() {
+  const brut = $('#champSkillNom').value;
+  const id = idSkill(brut);
+  const aide = $('#aideSkillNom');
+  aide.replaceChildren();
+  if (brut.trim() && id !== brut.trim()) {
+    aide.append(document.createTextNode('Identifiant : '), el('code', '', id || '…'));
+  } else aide.textContent = 'Minuscules, chiffres et tirets. C\'est aussi le nom du dossier.';
+}
+
+// id = identifiant à ouvrir, ou null pour un nouveau skill.
+function ouvrirSkill(id) {
+  const s = id ? sk.liste.find((x) => x.id === id) : null;
+  if (id && !s) return;
+  $('#erreurSkill').textContent = '';
+  if (!sk.admin) {
+    // Lecture seule (membre)
+    $('#titreSkill').textContent = s.id;
+    $('#formSkill').hidden = true;
+    $('#lectureSkill').hidden = false;
+    $('#lectureSkillDescription').textContent = s.description;
+    $('#lectureSkillMethode').innerHTML = markdownEnHTML(s.methode || '');
+    ouvrirFenetre('fenetreSkill');
+    return;
+  }
+  sk.edition = s ? s.id : null;
+  $('#formSkill').hidden = false;
+  $('#lectureSkill').hidden = true;
+  $('#titreSkill').textContent = s ? 'Modifier le skill' : 'Nouveau skill';
+  $('#champSkillNom').value = s ? s.id : '';
+  $('#champSkillDescription').value = s ? s.description : '';
+  $('#champSkillMethode').value = s ? s.methode : '';
+  $('#boutonSupprimerSkill').hidden = !s;
+  majAideNom();
+  vueMethode('ecrire');
+  ouvrirFenetre('fenetreSkill');
+  requestAnimationFrame(ajusterDescription);
+}
+
+async function enregistrerSkill(ev) {
+  ev.preventDefault();
+  const erreur = $('#erreurSkill');
+  erreur.textContent = '';
+  const nom = $('#champSkillNom').value;
+  const description = $('#champSkillDescription').value;
+  const methode = $('#champSkillMethode').value;
+  if (!idSkill(nom)) { erreur.textContent = 'Donnez un nom au skill.'; $('#champSkillNom').focus(); return; }
+  if (!description.trim()) { erreur.textContent = 'Dites quand utiliser ce skill.'; $('#champSkillDescription').focus(); return; }
+  if (!methode.trim()) { erreur.textContent = 'Écrivez la méthode.'; vueMethode('ecrire'); $('#champSkillMethode').focus(); return; }
+  const b = $('#boutonEnregistrerSkill');
+  b.disabled = true;
+  try {
+    const corps = { nom, description, methode };
+    if (sk.edition) corps.ancien = sk.edition;
+    const r = await api('/api/skills', { corps });
+    fermerFenetre('fenetreSkill');
+    toast(`Skill « ${r.skill.id} » enregistré.`, 'ok');
+    chargerSkills();
+  } catch (e) { erreur.textContent = e.message; }
+  finally { b.disabled = false; }
+}
+
+async function supprimerSkill(id) {
+  const ok = await confirmer('Supprimer ce skill ?', `« ${id} » sera supprimé : l'agent ne pourra plus l'appliquer.`, 'Supprimer');
+  if (!ok) return;
+  try {
+    await api('/api/skills/supprimer', { corps: { id } });
+    fermerFenetre('fenetreSkill');
+    toast('Skill supprimé.', 'ok');
+    chargerSkills();
+  } catch (e) { toast(e.message, 'erreur'); }
+}
+
+// ----- Le bouton « / » de la discussion -----
+
+function choisirSkill(id) {
+  sk.choisi = id || null;
+  $('#skillChoisi').hidden = !sk.choisi;
+  $('#skillChoisiNom').textContent = sk.choisi || '';
+  $('#boutonSlash').classList.toggle('actif', Boolean(sk.choisi));
+  ajusterZone();
+}
+
+function rendreMenuSkills() {
+  const menu = $('#menuSkills');
+  menu.replaceChildren();
+  const tete = el('div', 'menu-skills-titre', 'Appliquer un skill au prochain message');
+  menu.append(tete);
+  if (!sk.liste.length) {
+    const v = el('div', 'menu-skills-vide', 'Aucun skill pour l\'instant.');
+    if (estAdmin()) {
+      const b = el('button', 'lien-bouton', 'Créer un skill');
+      b.type = 'button';
+      b.addEventListener('click', () => { basculerMenuSkills(false); allerA('skills'); });
+      v.append(document.createTextNode(' '), b);
+    }
+    menu.append(v);
+    return;
+  }
+  sk.actif = Math.min(sk.actif, sk.liste.length - 1);
+  sk.liste.forEach((s, i) => {
+    const o = el('button', 'menu-skill');
+    o.type = 'button';
+    o.setAttribute('role', 'option');
+    o.id = 'option-skill-' + i;
+    o.setAttribute('aria-selected', String(s.id === sk.choisi));
+    if (i === sk.actif) o.classList.add('actif');
+    o.append(el('span', 'menu-skill-nom', '/' + s.id), el('span', 'menu-skill-description', s.description));
+    o.addEventListener('click', () => { choisirSkill(s.id); basculerMenuSkills(false); $('#zoneMessage').focus(); });
+    o.addEventListener('mousemove', () => { if (sk.actif !== i) { sk.actif = i; $$('.menu-skill', menu).forEach((x, j) => x.classList.toggle('actif', j === i)); } });
+    menu.append(o);
+  });
+}
+
+function basculerMenuSkills(ouvrir) {
+  const menu = $('#menuSkills');
+  const o = ouvrir === undefined ? menu.hidden : ouvrir;
+  if (o) {
+    sk.actif = Math.max(0, sk.liste.findIndex((s) => s.id === sk.choisi));
+    rendreMenuSkills();
+    chargerSkills();
+  }
+  menu.hidden = !o;
+  $('#boutonSlash').setAttribute('aria-expanded', String(o));
+}
+
+// Flèches, Entrée et Échap dans la liste (depuis la zone de saisie).
+function clavierMenuSkills(e) {
+  const menu = $('#menuSkills');
+  if (menu.hidden) return false;
+  if (e.key === 'Escape') { basculerMenuSkills(false); return true; }
+  if (!sk.liste.length) return false;
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    sk.actif = (sk.actif + (e.key === 'ArrowDown' ? 1 : -1) + sk.liste.length) % sk.liste.length;
+    $$('.menu-skill', menu).forEach((x, j) => x.classList.toggle('actif', j === sk.actif));
+    const a = $$('.menu-skill', menu)[sk.actif];
+    if (a) a.scrollIntoView({ block: 'nearest' });
+    return true;
+  }
+  if (e.key === 'Enter' || e.key === 'Tab') {
+    const s = sk.liste[sk.actif];
+    if (s) { choisirSkill(s.id); basculerMenuSkills(false); }
+    return true;
+  }
+  return false;
 }
 
 // ---------- Temps réel ----------
@@ -966,9 +1203,10 @@ function ouvrirFlux() {
     const m = lire(e);
     if (m && m.discussion === app.discussion) finaliser(m);
     // L'agent a pu écrire dans work/ ou dans sa mémoire.
-    if (!$('#vueReglages').hidden) { chargerFichiers(); chargerContexte(); }
+    if (!$('#vueReglages').hidden) { chargerFichiers(); chargerContexte(); chargerSkills(); }
   });
   flux.addEventListener('marque', (e) => changerMarque(lire(e)));
+  flux.addEventListener('skills', () => chargerSkills());
   flux.addEventListener('contexte', () => { chargerContexte(); chargerEtatPlusTard(); });
   flux.addEventListener('file', (e) => {
     const d = lire(e);
@@ -1007,7 +1245,8 @@ function choisirOnglet(nom) {
   $('#vueDiscussion').hidden = nom !== 'discussion';
   $('#vueReglages').hidden = nom !== 'reglages';
   document.body.classList.toggle('sur-reglages', nom === 'reglages');
-  if (nom === 'reglages') { chargerEtat(); chargerContexte(); chargerFichiers(); if (ctx.sous === 'documents') chargerDocuments(); }
+  if (nom === 'reglages') { chargerEtat(); chargerContexte(); chargerFichiers(); chargerSkills(); if (ctx.sous === 'documents') chargerDocuments(); }
+  if (nom !== 'discussion') basculerMenuSkills(false);
   if (nom === 'discussion') requestAnimationFrame(() => defiler(true));
 }
 
@@ -1190,6 +1429,9 @@ function brancherInterface() {
   const zone = $('#zoneMessage');
   zone.addEventListener('input', ajusterZone);
   zone.addEventListener('keydown', (e) => {
+    if (!e.isComposing && clavierMenuSkills(e)) { e.preventDefault(); return; }
+    // « / » au début d'un message vide : ouvre la liste des skills.
+    if (e.key === '/' && !zone.value && !e.metaKey && !e.ctrlKey) { e.preventDefault(); basculerMenuSkills(true); return; }
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); envoyer(zone.value); }
   });
   $('#saisie').addEventListener('submit', (e) => { e.preventDefault(); envoyer(zone.value); });
@@ -1250,7 +1492,8 @@ function brancherInterface() {
     if (ouverte) {
       if (ouverte.id === 'fenetreConfirmer') ouverte.dispatchEvent(new Event('fermeture'));
       else fermerFenetre(ouverte.id);
-    } else if (!$('#menu').hidden) basculerMenu(false);
+    } else if (!$('#menuSkills').hidden) basculerMenuSkills(false);
+    else if (!$('#menu').hidden) basculerMenu(false);
   });
 
   // Mise en route : déplier / replier
@@ -1270,6 +1513,19 @@ function brancherInterface() {
     basculerMenu(false);
     if (b.dataset.aller === 'fichiers') allerA('fichiers'); else choisirOnglet(b.dataset.aller);
   }));
+
+  // Skills : bouton « / », étiquette, liste
+  $('#boutonSlash').addEventListener('click', (e) => { e.stopPropagation(); basculerMenuSkills(); if (!$('#menuSkills').hidden) zone.focus(); });
+  $('#skillRetirer').addEventListener('click', () => { choisirSkill(null); zone.focus(); });
+  document.addEventListener('click', (e) => { if (!$('#menuSkills').hidden && !e.target.closest('#menuSkills, #boutonSlash')) basculerMenuSkills(false); });
+  $('#boutonNouveauSkill').addEventListener('click', () => ouvrirSkill(null));
+  $('#formSkill').addEventListener('submit', enregistrerSkill);
+  $('#champSkillNom').addEventListener('input', majAideNom);
+  $('#champSkillDescription').addEventListener('input', ajusterDescription);
+  $('#champSkillNom').addEventListener('blur', () => { const id = idSkill($('#champSkillNom').value); if (id) $('#champSkillNom').value = id; majAideNom(); });
+  $$('[data-skill-vue]').forEach((b) => b.addEventListener('click', () => vueMethode(b.dataset.skillVue)));
+  $('#boutonSupprimerSkill').addEventListener('click', () => { if (sk.edition) supprimerSkill(sk.edition); });
+  $('#champSkillMethode').addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 's') { e.preventDefault(); $('#formSkill').requestSubmit(); } });
 
   // Pièce jointe (trombone)
   $('#boutonJoindre').addEventListener('click', () => $('#champJoindre').click());
@@ -1366,7 +1622,7 @@ async function demarrer() {
   remplirIdentite();
   brancherInterface();
   creerScene();
-  await Promise.all([chargerEtat(), chargerDiscussion()]);
+  await Promise.all([chargerEtat(), chargerDiscussion(), chargerSkills()]);
   ouvrirFlux();
 }
 

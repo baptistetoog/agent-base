@@ -33,6 +33,8 @@
     <symbol id="i-oeil" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/></g></symbol>
     <symbol id="i-globe" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.3 2.4 3.4 5.2 3.4 8.5s-1.1 6.1-3.4 8.5c-2.3-2.4-3.4-5.2-3.4-8.5s1.1-6.1 3.4-8.5z"/></g></symbol>
     <symbol id="i-cle" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"/><path d="M11 12l8-8M16 7l2 2M14 9l2 2"/></g></symbol>
+    <symbol id="i-skill" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" d="M13 3L5 13.5h6L10 21l8-10.5h-6z"/></symbol>
+    <symbol id="i-crayon" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16zM13.5 6.5l4 4"/></symbol>
   </svg>
 
   <header class="entete">
@@ -115,8 +117,15 @@
             <span class="piece-taille" id="pieceTaille"></span>
             <button class="bouton-icone piece-retirer" id="pieceRetirer" type="button" aria-label="Retirer le fichier joint"><svg class="icone"><use href="#i-fermer"/></svg></button>
           </div>
+          <div class="skill-choisi" id="skillChoisi" hidden>
+            <svg class="icone" aria-hidden="true"><use href="#i-skill"/></svg>
+            <span>Skill : <strong id="skillChoisiNom"></strong></span>
+            <button class="bouton-icone skill-choisi-retirer" id="skillRetirer" type="button" aria-label="Ne plus appliquer ce skill"><svg class="icone"><use href="#i-fermer"/></svg></button>
+          </div>
+          <div class="menu-skills" id="menuSkills" role="listbox" aria-label="Choisir un skill" hidden></div>
           <div class="saisie-boite">
             <button class="bouton-icone bouton-joindre" id="boutonJoindre" type="button" aria-label="Joindre un fichier" title="Joindre un fichier (20 Mo max. : texte, Markdown, PDF, CSV, image)"><svg class="icone"><use href="#i-trombone"/></svg></button>
+            <button class="bouton-icone bouton-slash" id="boutonSlash" type="button" aria-label="Appliquer un skill au prochain message" aria-haspopup="listbox" aria-expanded="false" aria-controls="menuSkills" title="Appliquer un skill au prochain message">/</button>
             <input type="file" id="champJoindre" accept=".txt,.md,.markdown,.csv,.pdf,.png,.jpg,.jpeg,.gif,.webp" hidden>
             <label class="visuellement-cache" for="zoneMessage">Votre message</label>
             <textarea class="saisie-zone" id="zoneMessage" rows="1" placeholder="Écrivez votre message…" enterkeyhint="send"></textarea>
@@ -236,6 +245,18 @@
             <ul class="liste-fichiers" id="listeDocuments"></ul>
           </div>
           <p class="reglage-note membre-seul" hidden>Vous pouvez tout lire ; seul un admin peut modifier.</p>
+        </section>
+
+        <section class="carte reglage" id="sectionSkills" aria-labelledby="titreSkills">
+          <div class="carte-entete">
+            <div>
+              <h2 class="carte-titre" id="titreSkills">Skills</h2>
+              <p class="carte-aide">Les savoir-faire de l'agent : des méthodes écrites qu'il applique tout seul quand la demande s'y prête. Dans la discussion, le bouton <strong>/</strong> en impose un au prochain message.</p>
+            </div>
+            <button class="bouton bouton-petit admin-seul" type="button" id="boutonNouveauSkill"><svg class="icone"><use href="#i-plus"/></svg>Nouveau skill</button>
+          </div>
+          <ul class="liste-skills" id="listeSkills"></ul>
+          <p class="reglage-note membre-seul" hidden>Vous pouvez lire les skills ; seul un admin peut les créer ou les modifier.</p>
         </section>
 
         <section class="carte reglage" id="sectionFichiers" aria-labelledby="titreFichiers">
@@ -388,6 +409,53 @@
         <div class="fenetre-actions">
           <button class="bouton-secondaire" type="button" data-fermer>Annuler</button>
           <button class="bouton" type="button" id="boutonGarderProposition">Enregistrer dans CONTEXTE.md</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Fenêtre « Skill » : lire, créer, modifier -->
+  <div class="fenetre-fond" id="fenetreSkill" hidden>
+    <div class="fenetre fenetre-large fenetre-skill" role="dialog" aria-modal="true" aria-labelledby="titreSkill">
+      <div class="fenetre-entete">
+        <h2 class="fenetre-titre" id="titreSkill">Nouveau skill</h2>
+        <button class="bouton-icone" type="button" data-fermer aria-label="Fermer"><svg class="icone"><use href="#i-fermer"/></svg></button>
+      </div>
+      <form id="formSkill" autocomplete="off" novalidate>
+        <div class="skill-champ">
+          <label class="champ-libelle" for="champSkillNom">Nom</label>
+          <input class="champ" id="champSkillNom" maxlength="60" placeholder="ex. compte-rendu" spellcheck="false" autocapitalize="off" required>
+          <span class="champ-aide" id="aideSkillNom">Minuscules, chiffres et tirets. C'est aussi le nom du dossier.</span>
+        </div>
+        <div class="skill-champ">
+          <label class="champ-libelle" for="champSkillDescription">Quand l'utiliser</label>
+          <textarea class="champ skill-zone-description" id="champSkillDescription" rows="2" maxlength="400" placeholder="ex. Quand on demande de transformer des notes en compte rendu de réunion." required></textarea>
+          <span class="champ-aide">Une ou deux phrases : c'est ce qui permet à l'agent de choisir ce skill tout seul.</span>
+        </div>
+        <div class="skill-champ skill-champ-methode">
+          <div class="skill-methode-barre">
+            <label class="champ-libelle" for="champSkillMethode">Méthode</label>
+            <div class="onglets mini-onglets" role="tablist" aria-label="Méthode">
+              <button class="onglet" type="button" role="tab" data-skill-vue="ecrire" aria-selected="true">Écrire</button>
+              <button class="onglet" type="button" role="tab" data-skill-vue="apercu" aria-selected="false">Aperçu</button>
+            </div>
+          </div>
+          <textarea class="champ zone-texte skill-methode" id="champSkillMethode" spellcheck="true" placeholder="## Méthode&#10;1. …&#10;2. …&#10;&#10;## Format de la réponse&#10;…" required></textarea>
+          <div class="skill-apercu md" id="apercuSkill" hidden></div>
+          <span class="champ-aide">En Markdown : titres (##), listes, gras. Écrivez-la comme une consigne à un collègue.</span>
+        </div>
+        <p class="message-erreur guide-erreur" id="erreurSkill" role="alert"></p>
+        <div class="fenetre-actions">
+          <button class="bouton-fantome bouton-danger skill-supprimer" type="button" id="boutonSupprimerSkill" hidden><svg class="icone"><use href="#i-poubelle"/></svg>Supprimer</button>
+          <button class="bouton-secondaire" type="button" data-fermer>Annuler</button>
+          <button class="bouton" type="submit" id="boutonEnregistrerSkill">Enregistrer</button>
+        </div>
+      </form>
+      <div id="lectureSkill" hidden>
+        <p class="skill-lecture-description" id="lectureSkillDescription"></p>
+        <div class="skill-apercu md" id="lectureSkillMethode"></div>
+        <div class="fenetre-actions">
+          <button class="bouton-secondaire" type="button" data-fermer>Fermer</button>
         </div>
       </div>
     </div>

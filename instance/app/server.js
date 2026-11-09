@@ -8,6 +8,7 @@ const fs = require('fs');
 const path = require('path');
 const agent = require('./agent');
 const espace = require('./espace');
+const skills = require('./skills');
 
 process.umask(0o077); // tout fichier créé par le serveur n'est lisible que par son propriétaire
 
@@ -522,11 +523,35 @@ async function traiter(req, res) {
     return espace.servirFichier(res, dossier, url.searchParams.get('nom'), url.searchParams.get('apercu') === '1');
   }
 
+  // ----- Skills (agent/.claude/skills/<identifiant>/SKILL.md) : lecture pour tous, modification admin -----
+  if (chemin === '/api/skills' && methode === 'GET') return json(res, 200, { skills: skills.lister(), admin: estAdmin });
+  if (chemin === '/api/skills' && methode === 'POST') {
+    if (!estAdmin) return json(res, 403, { erreur: 'Seul un admin peut créer ou modifier un skill.' });
+    let corps;
+    try { corps = await lireCorps(req, 128 * 1024); } catch { return json(res, 413, { erreur: 'Skill trop long.' }); }
+    const r = skills.enregistrer(corps);
+    const { code, ...reste } = r;
+    if (r.ok) {
+      console.log(`Skill ${corps.ancien ? 'modifié' : 'créé'} par ${session.compte.email} : ${r.skill.id}`);
+      diffuser('skills', {});
+    }
+    return json(res, code, reste);
+  }
+  if (chemin === '/api/skills/supprimer' && methode === 'POST') {
+    if (!estAdmin) return json(res, 403, { erreur: 'Seul un admin peut supprimer un skill.' });
+    let corps;
+    try { corps = await lireCorps(req); } catch { return json(res, 413, { erreur: 'Requête trop grosse' }); }
+    const r = skills.supprimer(corps.id);
+    const { code, ...reste } = r;
+    if (r.ok) { console.log(`Skill supprimé par ${session.compte.email} : ${corps.id}`); diffuser('skills', {}); }
+    return json(res, code, reste);
+  }
+
   if (chemin === '/api/message' && methode === 'POST') {
     let corps;
     try { corps = await lireCorps(req, 128 * 1024); } catch { return json(res, 413, { erreur: 'Message trop long' }); }
     const fichier = corps.fichier ? String(corps.fichier) : null;
-    const r = agent.envoyer(corps.texte, session.compte, fichier);
+    const r = agent.envoyer(corps.texte, session.compte, fichier, corps.skill ? String(corps.skill) : null);
     const { code, ...reste } = r;
     return json(res, code, reste);
   }

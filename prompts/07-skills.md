@@ -10,9 +10,9 @@ Mon serveur est accessible par `ssh vps` (root). Lis d'abord /home/{UTILISATEUR}
 Ajoute les skills à l'agent. Un skill est une méthode écrite que l'agent applique quand la demande s'y prête. On utilise le format natif de Claude Code : un dossier agent/.claude/skills/<identifiant>/SKILL.md, avec en tête :
 ---
 name: <identifiant>
-description: <quand utiliser ce skill, en une ou deux phrases>
+description: "<quand utiliser ce skill, en une ou deux phrases>"
 ---
-puis la méthode en Markdown.
+puis la méthode en Markdown. La description est TOUJOURS entre guillemets (sinon le « : » français casse l'en-tête). Le nom (name) est l'identifiant, identique au nom du dossier.
 
 1. Crée deux skills de départ, utiles à n'importe quelle structure. Ils doivent être OPÉRATIONNELS tout de suite : des méthodes complètes, pas des modèles creux. Ils s'appuient sur CONTEXTE.md, memoire.md et regles.md (ton, signature, interdits) quand ces fichiers sont remplis.
    - synthese-document : résumer un document (de agent/documents/ ou collé dans la discussion). Sortie : en une phrase, l'essentiel ; puis 5 points clés au maximum ; puis les chiffres et dates importants ; puis les actions à mener (qui, quoi, quand) ; et ce qui manque ou reste flou. Il cite le document et ne rajoute rien qui n'y est pas.
@@ -20,16 +20,17 @@ puis la méthode en Markdown.
 
 2. Dans l'outil, ajoute une section « Skills » dans l'onglet « Réglages » du panneau (avec le système de design design.css) :
    - la liste des skills (nom + description) ;
-   - un admin peut créer, modifier et supprimer un skill (nom, description, méthode), avec un aperçu ;
+   - un admin peut créer, modifier et supprimer un skill (identifiant, description, méthode), avec un onglet Écrire / Aperçu ; changer l'identifiant renomme le dossier ;
+   - la liste se met à jour en direct (événement temps réel) quand l'agent crée lui-même un skill ;
    - un membre peut seulement les lire ;
    - dans la zone de discussion, un petit bouton « / » permet de choisir un skill à appliquer au prochain message. Le message envoyé à l'agent se termine alors par « Applique le skill <identifiant>. » et l'interface montre une étiquette du skill sur la bulle ;
    - côté serveur, l'identifiant est nettoyé (minuscules, chiffres, tirets) pour qu'on ne puisse pas écrire ailleurs que dans agent/.claude/skills/.
 
-ATTENTION, point technique : Claude Code refuse toujours que l'agent écrive dans son dossier .claude/, même avec une autorisation. Pour qu'il puisse créer ses skills, ajoute un petit serveur MCP d'approbation app/mcp-approbation.js (stdio, sans dépendance), passé à Claude avec --permission-prompt-tool : il répond « oui » uniquement pour écrire ou modifier agent/.claude/skills/<identifiant>/SKILL.md avec un en-tête valide, et « non » à tout le reste (les règles deny existantes passent avant lui). Ne passe jamais par le mode qui désactive toutes les vérifications. Garde Claude en --permission-mode acceptEdits, sans Write ni Edit dans --allowedTools.
+ATTENTION, point technique : Claude Code refuse toujours que l'agent écrive dans son dossier .claude/, même avec une autorisation. Pour qu'il puisse créer ses skills, ajoute un petit serveur MCP d'approbation app/mcp-approbation.js (stdio, sans dépendance), déclaré dans un fichier de configuration MCP passé avec --mcp-config (en plus de --strict-mcp-config) et utilisé avec --permission-prompt-tool mcp__approbation__approuver : il répond « oui » uniquement pour écrire ou modifier agent/.claude/skills/<identifiant>/SKILL.md avec un en-tête valide, et « non » à tout le reste (les règles deny existantes passent avant lui). Ne passe jamais par le mode qui désactive toutes les vérifications. Garde Claude en --permission-mode acceptEdits, sans Write ni Edit dans --allowedTools.
 
-3. Dans agent/CLAUDE.md, ajoute une section « Tes skills » : il utilise ses skills quand la demande s'y prête. Quand on lui dit « fais-en un skill » ou qu'il remarque qu'il refait souvent la même méthode, il propose de créer un skill, et s'il a l'accord, il l'écrit lui-même dans .claude/skills/<identifiant>/SKILL.md au bon format.
+3. Dans agent/CLAUDE.md, ajoute une section « Tes skills » : il utilise ses skills quand la demande s'y prête. Quand on lui dit « fais-en un skill » ou qu'il remarque qu'il refait souvent la même méthode, il propose de créer un skill, et s'il a l'accord, il l'écrit lui-même dans .claude/skills/<identifiant>/SKILL.md au bon format. « Crée un skill … » vaut accord. Si l'écriture est refusée, il le dit simplement et propose le texte du skill pour qu'un admin le colle dans Réglages › Skills.
 
-Vérifie toi-même (compte de test créé puis supprimé) : donne à l'agent un court texte de compte rendu de réunion inventé et demande-lui de le résumer ; vérifie dans le résultat brut de Claude qu'il a bien utilisé le skill synthese-document (outil Skill). Demande-lui un mail de relance : il doit utiliser redaction-mail. Puis demande-lui de créer un skill « compte-rendu » (transformer des notes en vrac en compte rendu de réunion : participants, décisions, actions avec responsable et date) et vérifie qu'il apparaît dans la section Skills : celui-là, on le garde. Mets à jour PROJET.md.
+Vérifie toi-même (un compte admin et un compte membre de test, créés puis supprimés) : donne à l'agent un court texte de compte rendu de réunion inventé et demande-lui de le résumer ; vérifie qu'il a bien utilisé le skill synthese-document (outil Skill) : enregistre pour cela dans l'historique le skill réellement utilisé par chaque réponse. Demande-lui un mail de relance : il doit utiliser redaction-mail. Puis demande-lui de créer un skill « compte-rendu » (transformer des notes en vrac en compte rendu de réunion : participants, décisions, actions avec responsable et date) et vérifie qu'il apparaît dans la section Skills : celui-là, on le garde. Mets à jour PROJET.md.
 ```
 
 ## Si ça ne marche pas

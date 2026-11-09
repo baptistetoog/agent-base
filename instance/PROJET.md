@@ -15,6 +15,8 @@
   - `app/server.js` : le serveur (Node.js 22, aucune dépendance npm)
   - `app/agent.js` : le cerveau (lance Claude Code pour chaque message, file d'attente, clé Claude)
   - `app/creer-compte.js` : créer, modifier ou supprimer un compte
+  - `app/skills.js` : les skills (liste, création, modification, suppression ; identifiant nettoyé)
+  - `app/mcp-approbation.js` : serveur MCP d'approbation (stdio, sans dépendance) passé à Claude avec `--permission-prompt-tool`
   - `app/espace.js` : identité de l'espace (nom, logo, agent, badge), fichiers de contexte, documents déposés, fichiers produits par l'agent (seuls chemins accessibles par l'outil)
   - `app/public/` : les pages
     - `design.css` : le système de design de TOUTES les pages (charte + composants .carte, .bouton, .bouton-secondaire, .pastille, .onglets, .fenetre, .toast, .vide, .squelette)
@@ -30,6 +32,7 @@
   - `documents/` : les documents déposés par l'équipe (Réglages ou trombone de la discussion).
   - `work/` : ses livrables (un fichier par travail), téléchargeables dans « Fichiers de l'agent ».
   - `.claude/settings.json` : interdictions
+  - `.claude/skills/<identifiant>/SKILL.md` : ses skills (format natif Claude Code). Départ : `synthese-document`, `redaction-mail` ; créé par l'agent : `compte-rendu`.
 - `sauvegardes/` : archives faites avant chaque étape
 - `.claude-token.env` : la clé Claude (600), écrite par la fenêtre « Connecter Claude ». Ne jamais l'afficher.
 - `PROJET.md` : ce fichier
@@ -39,6 +42,7 @@ Où changer quoi :
 - Le personnage 3D (couleurs, badge, accessoire) : la constante `PERSONNAGE` en haut de `app/public/app.js`.
 - Le nom de l'espace, le logo, le nom de l'agent et son badge : Réglages › Identité (admin). Rangés dans `data/identite.json`, prioritaires sur `NOM_OUTIL` / `NOM_AGENT` du service (qui ne servent plus que de valeurs par défaut). Les pages les lisent par `GET /api/marque` ; la scène 3D est recréée tout de suite.
 - Ce que l'agent sait (contexte, mémoire, règles, fiche) et ses documents : Réglages › Contexte et mémoire.
+- Ses skills : Réglages › Skills (admin), ou en lui disant « fais-en un skill ».
 
 ## Le service
 
@@ -69,7 +73,7 @@ Commandes (en root) :
 ## Le cerveau de l'agent (app/agent.js)
 
 - Chaque message lance, dans `/home/agentforma/agent`, en tant que agentforma :
-  `~/.local/bin/claude -p --output-format stream-json --verbose --include-partial-messages --model sonnet --setting-sources project --strict-mcp-config --permission-mode acceptEdits --allowedTools Read Glob Grep WebSearch WebFetch Skill --disallowedTools Bash Task Agent NotebookEdit` (+ `--resume <session_id>` pour continuer la discussion). Le message est envoyé sur l'entrée standard.
+  `~/.local/bin/claude -p --output-format stream-json --verbose --include-partial-messages --model sonnet --setting-sources project --strict-mcp-config --mcp-config <serveur approbation> --permission-prompt-tool mcp__approbation__approuver --permission-mode acceptEdits --allowedTools Read Glob Grep WebSearch WebFetch Skill --disallowedTools Bash Task Agent NotebookEdit` (+ `--resume <session_id>` pour continuer la discussion). Le message est envoyé sur l'entrée standard.
 - Environnement propre et minimal (HOME, PATH…), plus `CLAUDE_CODE_OAUTH_TOKEN` relu dans `.claude-token.env` à CHAQUE lancement, `ENABLE_CLAUDEAI_MCP_SERVERS=false`, `DISABLE_AUTOUPDATER=1`. La copie de la clé chargée par systemd au démarrage est ignorée.
 - Un seul travail à la fois ; les autres messages attendent (file de 20 au plus). « Arrêter » coupe le travail en cours (le message suivant de la file démarre). Limite : 10 minutes par message.
 - « Nouvelle discussion » : vide la file, arrête le travail en cours, oublie le session_id. La discussion est commune à toute l'équipe.
@@ -168,3 +172,17 @@ Commandes (en root) :
 - Interface : Réglages › Identité (en tête), Contexte et mémoire (sous-onglets Contexte, Mémoire, Règles, Fiche, Documents ; lecture mise en forme, « Modifier » pour un admin), Fichiers de l'agent (aperçu, téléchargement, suppression admin ; accessible depuis l'en-tête sur ordinateur et le menu ☰ sur mobile) ; trombone et glisser-déposer dans la discussion ; cartes de fichier dans les bulles ; icône d'onglet = logo ou carré avec l'initiale ; sur mobile, le bureau 3D se replie sur l'onglet Réglages.
 - Vérifié (compte de test admin + compte membre, supprimés) : identité changée par l'API (/api/marque, /api/logo, SVG avec CSP sans script), l'agent répond « Je m'appelle Hector », scène recréée sans recharger ; valeurs d'origine remises, logo retiré ; document ORION-7 trouvé et cité ; « Je retiens » + ligne datée dans memoire.md, retrouvée dans une nouvelle discussion, puis retirée ; modifier regles.md refusé ; fichier joint lu, work/essai.md créé, listé et téléchargé, puis supprimés ; « Quels sont nos tarifs ? » → « Je n'ai pas cette information » + proposition de déposer un document ; « Remplir à partir d'un site » testé (48 s, rien enregistré) ; refus : faux PNG, PDF déguisé, SVG en document, chemin ../, lien symbolique, dossier hors liste, membre (403 sur toute modification) ; mission remplie → étape 2 cochée + voyant vert, puis remise à « À compléter ». Captures ordinateur et mobile, aucune erreur de console.
 - CONTEXTE.md laissé avec ses rubriques « À compléter ».
+
+## Les skills (étape 7)
+
+- Format : `agent/.claude/skills/<identifiant>/SKILL.md`, en-tête `---` / `name: <identifiant>` / `description: "<quand l'utiliser>"` / `---`, puis la méthode en Markdown. La description est écrite entre guillemets (le « : » français casserait l'en-tête YAML). Claude Code les charge tout seul (`--setting-sources project`) ; l'agent les utilise avec l'outil `Skill` (déjà dans `--allowedTools`).
+- Identifiant : minuscules, chiffres, tirets, 60 caractères max (« Réponse aux avis » → `reponse-aux-avis`). Nettoyé côté serveur (`nettoyerId` de `app/skills.js`) : impossible d'écrire ailleurs que dans `agent/.claude/skills/`.
+- Routes : `GET /api/skills` (tout compte), `POST /api/skills` `{nom, description, methode, ancien?}` (admin ; `ancien` = identifiant avant modification/renommage), `POST /api/skills/supprimer` `{id}` (admin). Événement temps réel `skills`.
+- Interface : Réglages › Skills (liste nom + description ; admin : « Nouveau skill », crayon, poubelle, éditeur avec onglets Écrire / Aperçu ; membre : lecture seule). Discussion : bouton « / » (ou « / » tapé dans un message vide) → liste des skills → étiquette « Skill : <id> » au-dessus de la saisie. `POST /api/message` reçoit alors `skill` ; le serveur vérifie qu'il existe et termine le texte envoyé à l'agent par « Applique le skill <id>. » ; la ligne d'historique garde `skill` et la bulle affiche l'étiquette (la phrase est masquée).
+- L'agent crée ses skills lui-même (section « Tes skills » de `agent/CLAUDE.md`). Claude Code refuse toujours l'écriture dans `.claude/` : `app/mcp-approbation.js` répond « oui » UNIQUEMENT à Write/Edit de `agent/.claude/skills/<id>/SKILL.md` avec un en-tête valide (name = nom du dossier, description non vide et entre guillemets si elle contient « : », méthode non vide, aucun autre champ, aucun lien symbolique) et « non » à tout le reste. Les règles deny passent avant lui. Jamais de `--dangerously-skip-permissions`, pas de Write/Edit dans `--allowedTools`. Journaux du serveur d'approbation : `~/.cache/claude-cli-nodejs/-home-agentforma-agent/mcp-logs-approbation/`.
+- L'historique garde, pour l'outil Skill, le skill réellement utilisé (`outils[].skill`).
+
+### Étape 7 — les skills (09/11/2026)
+- Sauvegarde : `sauvegardes/avant-etape7-20261109-1043.tar.gz` (app, agent, PROJET.md).
+- Nouveaux : `app/skills.js`, `app/mcp-approbation.js`, skills `synthese-document` et `redaction-mail`, section « Tes skills » de `agent/CLAUDE.md`. Modifiés : `app/agent.js`, `app/server.js`, `index.html`, `app.js`, `bureau.css`.
+- Vérifié (compte de test admin + membre, supprimés) : résumé d'un compte rendu inventé → outil `Skill` `synthese-document` (vu dans la transcription brute de Claude) ; mail de relance → `redaction-mail` ; « crée un skill compte-rendu » → Write approuvé par le serveur d'approbation (journal MCP), skill visible dans Réglages › Skills (GARDÉ) ; bouton « / » + compte-rendu → message terminé par « Applique le skill compte-rendu. », étiquette sur la bulle, skill utilisé ; API : création, renommage, doublon refusé, `../../settings` nettoyé en `settings`, membre 403 ; serveur d'approbation : refus de settings.json, d'un autre nom de fichier, d'un name différent du dossier, de Bash. Captures ordinateur et mobile, aucune erreur de console.
