@@ -5,6 +5,12 @@
     document.title = 'Connexion · ' + m.nomOutil;
     document.querySelectorAll('[data-initiale]').forEach((e) => { e.textContent = m.initiale; });
     document.querySelectorAll('[data-nom-outil]').forEach((e) => { e.textContent = m.nomOutil; });
+    if (m.logo) {
+      document.querySelectorAll('[data-logo]').forEach((e) => { e.src = m.logo; e.alt = m.nomOutil; e.hidden = false; });
+      document.querySelectorAll('[data-initiale]').forEach((e) => { e.hidden = true; });
+    }
+    const icone = document.getElementById('favicon');
+    if (icone) icone.href = m.logo || ('data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="' + (getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#3B5BDB') + '"/><text x="16" y="22" font-family="Inter,Arial,sans-serif" font-size="18" font-weight="700" fill="#fff" text-anchor="middle">' + m.initiale.replace(/[<&>"]/g, '') + '</text></svg>'));
   } catch (e) { /* la page reste utilisable sans le nom */ }
 
   const formulaire = document.getElementById('formulaire');

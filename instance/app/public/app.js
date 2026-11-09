@@ -102,10 +102,20 @@ function tete(taille = 30) {
 
 // ---------- Marque, compte ----------
 
+// Icône d'onglet : le logo, sinon le carré de couleur avec l'initiale.
+function majFavicon(m) {
+  const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#3B5BDB';
+  const initiale = String(m.initiale || '?').replace(/[<&>"']/g, '');
+  $('#favicon').href = m.logo || ('data:image/svg+xml,' + encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="${accent}"/><text x="16" y="22" font-family="Inter,Arial,sans-serif" font-size="18" font-weight="700" fill="#fff" text-anchor="middle">${initiale}</text></svg>`));
+}
+
 function appliquerMarque() {
   const m = app.marque;
   document.title = `${m.nomAgent} · ${m.nomOutil}`;
-  $$('[data-initiale]').forEach((e) => { e.textContent = m.initiale; });
+  majFavicon(m);
+  $$('[data-initiale]').forEach((e) => { e.textContent = m.initiale; e.hidden = Boolean(m.logo); });
+  $$('[data-logo]').forEach((e) => { if (m.logo) { e.src = m.logo; e.alt = m.nomOutil; } e.hidden = !m.logo; });
   $$('[data-nom-outil]').forEach((e) => { e.textContent = m.nomOutil; });
   $$('[data-nom-agent]').forEach((e) => { e.textContent = m.nomAgent; });
   $$('[data-tete]').forEach((e) => { e.replaceChildren(tete(Number(e.dataset.tete) || 30)); });
@@ -120,6 +130,31 @@ function appliquerMarque() {
 }
 
 const estAdmin = () => app.moi && app.moi.role === 'admin';
+
+// La scène 3D : (re)créée avec le nom, l'espace et le badge en vigueur, sans recharger la page.
+function creerScene() {
+  const m = app.marque;
+  if (app.bureau) { try { app.bureau.destroy(); } catch { /* rien */ } app.bureau = null; }
+  try {
+    app.bureau = creerBureau($('#scene3d'), {
+      ...PERSONNAGE, nom: m.nomAgent, entreprise: m.nomOutil,
+      badge: typeof m.badge === 'string' ? m.badge : PERSONNAGE.badge,
+    });
+    appliquerStatut(app.statut);
+  } catch (e) { console.warn('Bureau 3D indisponible :', e); }
+}
+
+// Nouvelle marque reçue (Identité enregistrée, ici ou par un collègue).
+function changerMarque(m) {
+  if (!m) return;
+  const avant = app.marque;
+  if (avant && JSON.stringify(avant) === JSON.stringify(m)) return; // rien de neuf
+  app.marque = m;
+  appliquerMarque();
+  remplirIdentite();
+  if (!avant || avant.nomAgent !== m.nomAgent || avant.nomOutil !== m.nomOutil || avant.badge !== m.badge) creerScene();
+  if ($('.accueil', fil())) afficherAccueil();
+}
 
 // ---------- Statut de l'agent (scène + étiquette + boutons) ----------
 
@@ -212,6 +247,13 @@ function rendreMiseEnRoute(mer) {
       const b = el('span', 'pastille');
       b.append(el('span', 'long', 'Bientôt disponible'), el('span', 'court', 'Bientôt'));
       li.append(b);
+    } else if (etape.id === 'contexte') {
+      const b = el('button', 'bouton bouton-petit');
+      b.append(el('span', 'long', estAdmin() ? 'Compléter' : 'Voir'), el('span', 'court', 'Ouvrir'));
+      b.type = 'button';
+      b.addEventListener('click', () => allerA('contexte'));
+      li.append(b);
+      if (!action) action = { texte: estAdmin() ? 'Décrivez votre structure et la mission de l\'agent.' : 'Un admin doit décrire la mission de l\'agent.', bouton: 'Ouvrir', clic: () => allerA('contexte') };
     } else if (etape.id === 'claude') {
       if (estAdmin()) {
         const b = el('button', 'bouton bouton-petit');
@@ -326,8 +368,12 @@ function elementMessage(m) {
     const md = el('div', 'md');
     md.innerHTML = markdownEnHTML(m.texte || '');
     bulle.append(md);
+    for (const f of (m.fichiers || [])) bulle.append(carteFichier('work', f));
   } else {
-    bulle.textContent = m.texte;
+    let texte = m.texte || '';
+    if (m.fichier) texte = texte.replace(/\n*Fichier joint : documents\/[^\n]*$/, '').trim();
+    if (texte) bulle.append(document.createTextNode(texte));
+    if (m.fichier) bulle.append(carteFichier('documents', m.fichier));
   }
   let meta = heure(m.quand);
   if (!agent && !moi && m.qui) meta = `${prenomDe(m.qui.nom)} · ${meta}`;
@@ -335,6 +381,20 @@ function elementMessage(m) {
   bloc.append(bulle, el('div', 'meta', meta));
   ligne.append(bloc);
   return ligne;
+}
+
+function lienTelechargement(dossier, nom) {
+  return `/api/telecharger?dossier=${dossier}&nom=${encodeURIComponent(nom)}`;
+}
+
+// Petite carte « 📄 nom · Télécharger » dans une bulle.
+function carteFichier(dossier, nom) {
+  const a = el('a', 'carte-fichier');
+  a.href = lienTelechargement(dossier, nom);
+  a.setAttribute('download', nom);
+  a.title = 'Télécharger ' + nom;
+  a.append(el('span', 'carte-fichier-icone', '📄'), el('span', 'carte-fichier-nom', nom), el('span', 'carte-fichier-action', 'Télécharger'));
+  return a;
 }
 
 function ajouterMessage(m) {
@@ -443,7 +503,8 @@ async function chargerDiscussion() {
 
 async function envoyer(texte) {
   const t = String(texte || '').trim();
-  if (!t) return;
+  const piece = app.pieceJointe;
+  if (!t && !piece) return;
   if (!app.claude.connecte) {
     if (estAdmin()) { toast('Connectez d\'abord Claude pour que l\'agent puisse répondre.', 'attention'); ouvrirFenetreClaude(); }
     else toast('L\'agent n\'est pas encore connecté : demandez à un admin.', 'attention');
@@ -452,9 +513,24 @@ async function envoyer(texte) {
   const zone = $('#zoneMessage');
   zone.value = '';
   ajusterZone();
+  let fichier = null;
+  if (piece) {
+    $('#boutonEnvoyer').disabled = true;
+    $('#pieceTaille').textContent = 'envoi…';
+    try {
+      fichier = (await envoyerFichier('/api/joindre', piece)).document.nom;
+    } catch (e) {
+      toast(e.message, 'erreur');
+      if (!zone.value) { zone.value = t; }
+      afficherPiece(piece);
+      ajusterZone();
+      return;
+    }
+    retirerPiece();
+  }
   if (app.bureau) app.bureau.statut('message');
   try {
-    const r = await api('/api/message', { corps: { texte: t } });
+    const r = await api('/api/message', { corps: { texte: t, fichier } });
     ajouterMessage(r.message);
     defiler(true);
     if (r.enAttente) toast(`L'agent termine son travail en cours : votre message passe ensuite (${r.enAttente} en attente).`);
@@ -470,7 +546,380 @@ function ajusterZone() {
   const z = $('#zoneMessage');
   z.style.height = 'auto';
   z.style.height = Math.min(z.scrollHeight, 180) + 'px';
-  $('#boutonEnvoyer').disabled = !z.value.trim();
+  $('#boutonEnvoyer').disabled = !z.value.trim() && !app.pieceJointe;
+}
+
+// ---------- Fichiers : envoi, pièce jointe, listes ----------
+
+const MAX_FICHIER = 20 * 1024 * 1024;
+const EXT_ACCEPTEES = /\.(txt|md|markdown|csv|pdf|png|jpe?g|gif|webp)$/i;
+
+function taille(o) {
+  if (o < 1024) return `${o} o`;
+  if (o < 1024 * 1024) return `${Math.round(o / 102.4) / 10} Ko`.replace('.', ',');
+  return `${Math.round(o / 104857.6) / 10} Mo`.replace('.', ',');
+}
+
+function verifierFichier(f) {
+  if (!EXT_ACCEPTEES.test(f.name)) return 'Format refusé : texte, Markdown, PDF, CSV ou image.';
+  if (f.size > MAX_FICHIER) return `« ${f.name} » dépasse 20 Mo.`;
+  if (!f.size) return `« ${f.name} » est vide.`;
+  return null;
+}
+
+async function envoyerFichier(route, fichier) {
+  const r = await fetch(route, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/octet-stream', 'X-Nom-Fichier': encodeURIComponent(fichier.name) },
+    body: fichier,
+  });
+  if (r.status === 401) { window.location.href = '/connexion.html'; throw new Error('Non connecté'); }
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.erreur || (r.status === 413 ? 'Le fichier dépasse la taille permise.' : 'L\'envoi a échoué.'));
+  return d;
+}
+
+function afficherPiece(f) {
+  app.pieceJointe = f;
+  $('#pieceNom').textContent = f.name;
+  $('#pieceTaille').textContent = taille(f.size);
+  $('#pieceJointe').hidden = false;
+  ajusterZone();
+}
+function retirerPiece() {
+  app.pieceJointe = null;
+  $('#pieceJointe').hidden = true;
+  $('#champJoindre').value = '';
+  ajusterZone();
+}
+
+function ligneFichier(dossier, f, admin, surSupprimer) {
+  const li = el('li', 'fichier');
+  li.append(el('span', 'fichier-icone', /\.(png|jpe?g|gif|webp)$/i.test(f.nom) ? '🖼️' : (/\.pdf$/i.test(f.nom) ? '📕' : '📄')));
+  const infos = el('span', 'fichier-infos');
+  infos.append(el('span', 'fichier-nom', f.nom), el('span', 'fichier-meta', `${taille(f.taille)} · ${heure(f.modifie)}`));
+  li.append(infos);
+  const actions = el('span', 'fichier-actions');
+  if (f.texte) {
+    const v = el('button', 'bouton-icone');
+    v.type = 'button';
+    v.title = 'Aperçu';
+    v.setAttribute('aria-label', 'Aperçu de ' + f.nom);
+    v.innerHTML = '<svg class="icone"><use href="#i-oeil"/></svg>';
+    v.addEventListener('click', () => apercu(dossier, f.nom));
+    actions.append(v);
+  }
+  const t = el('a', 'bouton-secondaire bouton-petit');
+  t.href = lienTelechargement(dossier, f.nom);
+  t.setAttribute('download', f.nom);
+  t.innerHTML = '<svg class="icone"><use href="#i-telecharger"/></svg>';
+  t.append(el('span', 'long', 'Télécharger'));
+  t.setAttribute('aria-label', 'Télécharger ' + f.nom);
+  actions.append(t);
+  if (admin) {
+    const s = el('button', 'bouton-icone bouton-danger');
+    s.type = 'button';
+    s.title = 'Supprimer';
+    s.setAttribute('aria-label', 'Supprimer ' + f.nom);
+    s.innerHTML = '<svg class="icone"><use href="#i-poubelle"/></svg>';
+    s.addEventListener('click', () => surSupprimer(f.nom));
+    actions.append(s);
+  }
+  li.append(actions);
+  return li;
+}
+
+function listeVide(ul, titre, texte) {
+  const li = el('li', 'vide liste-vide');
+  li.append(el('p', 'vide-titre', titre), el('p', '', texte));
+  ul.append(li);
+}
+
+async function chargerDocuments() {
+  try {
+    const d = await api('/api/documents');
+    const ul = $('#listeDocuments');
+    ul.replaceChildren();
+    if (!d.documents.length) listeVide(ul, 'Aucun document', estAdmin() ? 'Déposez vos tarifs, votre catalogue, vos procédures : l\'agent s\'en servira.' : 'Un admin peut déposer des documents.');
+    for (const f of d.documents) ul.append(ligneFichier('documents', f, d.admin, supprimerDocument));
+  } catch { /* rien */ }
+}
+
+async function chargerFichiers() {
+  try {
+    const d = await api('/api/fichiers');
+    const ul = $('#listeFichiers');
+    ul.replaceChildren();
+    if (!d.fichiers.length) listeVide(ul, 'Rien pour l\'instant', 'Demandez à l\'agent de rédiger quelque chose : le fichier apparaîtra ici.');
+    for (const f of d.fichiers) ul.append(ligneFichier('work', f, d.admin, supprimerFichierAgent));
+  } catch { /* rien */ }
+}
+
+async function supprimerDocument(nom) {
+  const ok = await confirmer('Supprimer ce document ?', `« ${nom} » sera supprimé : l'agent ne pourra plus le consulter.`, 'Supprimer');
+  if (!ok) return;
+  try { await api('/api/documents/supprimer', { corps: { nom } }); toast('Document supprimé.', 'ok'); chargerDocuments(); }
+  catch (e) { toast(e.message, 'erreur'); }
+}
+
+async function supprimerFichierAgent(nom) {
+  const ok = await confirmer('Supprimer ce fichier ?', `« ${nom} » sera supprimé définitivement.`, 'Supprimer');
+  if (!ok) return;
+  try { await api('/api/fichiers/supprimer', { corps: { nom } }); toast('Fichier supprimé.', 'ok'); chargerFichiers(); }
+  catch (e) { toast(e.message, 'erreur'); }
+}
+
+async function deposerDocuments(liste) {
+  const fichiers = Array.from(liste || []);
+  for (const f of fichiers) {
+    const pb = verifierFichier(f);
+    if (pb) { toast(pb, 'erreur'); continue; }
+    try {
+      const r = await envoyerFichier('/api/documents', f);
+      toast(`« ${r.document.nom} » déposé.`, 'ok');
+    } catch (e) { toast(e.message, 'erreur'); }
+  }
+  $('#champDeposer').value = '';
+  chargerDocuments();
+}
+
+async function apercu(dossier, nom) {
+  $('#titreApercu').textContent = nom;
+  $('#apercuTelecharger').href = lienTelechargement(dossier, nom);
+  $('#apercuTelecharger').setAttribute('download', nom);
+  const zone = $('#apercuContenu');
+  zone.replaceChildren(el('div', 'squelette apercu-squelette'));
+  ouvrirFenetre('fenetreApercu');
+  try {
+    const r = await fetch(lienTelechargement(dossier, nom) + '&apercu=1');
+    if (!r.ok) throw new Error();
+    const t = await r.text();
+    if (/\.(md|markdown)$/i.test(nom)) zone.innerHTML = markdownEnHTML(t);
+    else { const pre = el('pre', 'apercu-brut', t); zone.replaceChildren(pre); }
+  } catch { zone.replaceChildren(el('p', 'vide', 'Aperçu impossible. Téléchargez le fichier.')); }
+}
+
+// ---------- Identité ----------
+
+function remplirIdentite() {
+  const m = app.marque;
+  if (!m || !app.moi) return;
+  const form = $('#formIdentite');
+  if (!form.dataset.modifie) {
+    $('#champNomOutil').value = m.nomOutil;
+    $('#champNomAgent').value = m.nomAgent;
+    $('#champBadge').value = typeof m.badge === 'string' ? m.badge : PERSONNAGE.badge;
+  }
+  $('#logoImage').hidden = !m.logo;
+  if (m.logo) $('#logoImage').src = m.logo;
+  $('#logoInitiale').hidden = Boolean(m.logo);
+  $('#logoInitiale').textContent = m.initiale;
+  $('#boutonRetirerLogo').hidden = !m.logo;
+  $('#boutonLogo').textContent = m.logo ? 'Changer le logo' : 'Envoyer un logo';
+}
+
+async function enregistrerIdentite(ev) {
+  ev.preventDefault();
+  const erreur = $('#erreurIdentite');
+  erreur.textContent = '';
+  const b = $('#boutonIdentite');
+  b.disabled = true;
+  try {
+    const r = await api('/api/identite', { corps: { nomOutil: $('#champNomOutil').value, nomAgent: $('#champNomAgent').value, badge: $('#champBadge').value } });
+    delete $('#formIdentite').dataset.modifie;
+    changerMarque(r.marque);
+    toast('Identité enregistrée.', 'ok');
+  } catch (e) { erreur.textContent = e.message; }
+  finally { b.disabled = false; }
+}
+
+async function envoyerLogo(f) {
+  if (!f) return;
+  if (f.size > 2 * 1024 * 1024) { toast('Le logo dépasse 2 Mo.', 'erreur'); return; }
+  try {
+    const r = await envoyerFichier('/api/identite/logo', f);
+    changerMarque(r.marque);
+    toast('Logo enregistré.', 'ok');
+  } catch (e) { toast(e.message, 'erreur'); }
+  $('#champLogo').value = '';
+}
+
+async function retirerLogo() {
+  try { const r = await api('/api/identite/logo/retirer', { corps: {} }); changerMarque(r.marque); toast('Logo retiré.'); }
+  catch (e) { toast(e.message, 'erreur'); }
+}
+
+// ---------- Contexte et mémoire ----------
+
+const EXPLICATIONS = {
+  contexte: 'La fiche d\'identité de votre structure : qui vous êtes, ce que vous proposez, la mission de l\'agent. Il la relit à chaque message.',
+  memoire: 'Ce que l\'agent a retenu d\'une discussion à l\'autre. Il l\'écrit lui-même ; vous pouvez corriger ou effacer une ligne.',
+  regles: 'Les règles communes que l\'agent suit toujours. Il ne peut pas les modifier lui-même.',
+  fiche: 'La fiche de poste de l\'agent (CLAUDE.md) : sa méthode, ses documents, sa mémoire. Les trois premières lignes chargent les autres fichiers : ne les retirez pas.',
+};
+
+const ctx = { fichiers: {}, sous: 'contexte', edition: false };
+
+async function chargerContexte() {
+  try {
+    const d = await api('/api/contexte');
+    for (const f of d.fichiers) ctx.fichiers[f.id] = f;
+    if (!ctx.edition) rendreSousVue();
+  } catch { /* rien */ }
+}
+
+function choisirSous(nom) {
+  if (ctx.edition && nom !== ctx.sous && $('#zoneTexte').value !== (ctx.fichiers[ctx.sous] || {}).contenu) {
+    if (!window.confirm('Abandonner vos modifications non enregistrées ?')) return;
+  }
+  ctx.sous = nom;
+  ctx.edition = false;
+  $$('[data-sous]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.sous === nom)));
+  rendreSousVue();
+  if (nom === 'documents') chargerDocuments();
+}
+
+function rendreSousVue() {
+  const docs = ctx.sous === 'documents';
+  $('#vueDocuments').hidden = !docs;
+  $('#vueTexte').hidden = docs;
+  if (docs) return;
+  const f = ctx.fichiers[ctx.sous];
+  if (!f) return;
+  $('#texteFichier').textContent = f.fichier;
+  $('#texteModifie').textContent = f.modifie ? ` · modifié ${heure(f.modifie)}` : '';
+  $('#texteExplication').textContent = EXPLICATIONS[ctx.sous] || '';
+  $('#boutonRemplir').hidden = !estAdmin() || ctx.sous !== 'contexte' || ctx.edition;
+  $('#boutonModifier').hidden = !estAdmin() || ctx.edition;
+  $('#texteEdition').hidden = !ctx.edition;
+  $('#texteLecture').hidden = ctx.edition;
+  if (ctx.edition) return;
+  const lecture = $('#texteLecture');
+  // markdown.js rend # en h3 et ## en h4 ; les mentions « À compléter » sont signalées en couleur.
+  const source = f.contenu || '';
+  lecture.innerHTML = source.trim() ? markdownEnHTML(source) : '<p class="vide">Fichier vide.</p>';
+  for (const p of $$('p, li', lecture)) {
+    if (/^\s*À compléter\s*$/.test(p.textContent)) p.classList.add('a-completer');
+  }
+  // Mémoire : une rubrique encore vide le dit.
+  if (ctx.sous === 'memoire') {
+    $$('h4', lecture).forEach((h) => {
+      const suivant = h.nextElementSibling;
+      if (!suivant || /^H\d$/.test(suivant.tagName)) h.after(el('p', 'a-vide', 'Rien de retenu pour l\'instant.'));
+    });
+  }
+}
+
+function ouvrirEdition(texte) {
+  const f = ctx.fichiers[ctx.sous];
+  ctx.edition = true;
+  rendreSousVue();
+  const z = $('#zoneTexte');
+  z.value = texte !== undefined ? texte : f.contenu;
+  z.focus({ preventScroll: true });
+  z.setSelectionRange(0, 0);
+  z.scrollTop = 0;
+}
+
+async function enregistrerTexte(id, contenu) {
+  const r = await api(`/api/contexte/${id}`, { corps: { contenu } });
+  ctx.fichiers[id] = { ...ctx.fichiers[id], contenu: contenu.endsWith('\n') ? contenu : contenu + '\n', modifie: r.modifie };
+  return r;
+}
+
+async function sauverEdition() {
+  const b = $('#boutonEnregistrerTexte');
+  b.disabled = true;
+  try {
+    await enregistrerTexte(ctx.sous, $('#zoneTexte').value);
+    ctx.edition = false;
+    rendreSousVue();
+    chargerEtat();
+    toast(`${ctx.fichiers[ctx.sous].fichier} enregistré.`, 'ok');
+  } catch (e) { toast(e.message, 'erreur'); }
+  finally { b.disabled = false; }
+}
+
+// « Remplir à partir d'un site »
+let suiviRemplir = null;
+
+function vueRemplir(v) {
+  $('#remplirDepart').hidden = v !== 'depart';
+  $('#remplirAttente').hidden = v !== 'attente';
+  $('#remplirResultat').hidden = v !== 'resultat';
+}
+
+async function ouvrirRemplir() {
+  $('#erreurRemplir').textContent = '';
+  vueRemplir('depart');
+  ouvrirFenetre('fenetreRemplir');
+  try {
+    const e = await api('/api/contexte/remplir');
+    if (e.etat === 'en-cours') { vueRemplir('attente'); suivreRemplir(); }
+    else if (e.etat === 'fini' && e.proposition && !app.propositionVue) { $('#zoneProposition').value = e.proposition; vueRemplir('resultat'); }
+    if (e.url) $('#champSite').value = e.url;
+  } catch { /* rien */ }
+}
+
+function suivreRemplir() {
+  clearTimeout(suiviRemplir);
+  suiviRemplir = setTimeout(async () => {
+    let e;
+    try { e = await api('/api/contexte/remplir'); } catch { return suivreRemplir(); }
+    if (e.etat === 'en-cours') {
+      const s = Math.round((Date.now() - new Date(e.debut).getTime()) / 1000);
+      $('#remplirDuree').textContent = `Depuis ${s} s. Une à trois minutes en général. Vous pouvez fermer cette fenêtre : la proposition vous attendra.`;
+      return suivreRemplir();
+    }
+    if (e.etat === 'fini') {
+      app.propositionVue = false;
+      $('#zoneProposition').value = e.proposition;
+      vueRemplir('resultat');
+      if ($('#fenetreRemplir').hidden) toast('La proposition de contexte est prête : Réglages › Contexte › Remplir à partir d\'un site.', 'ok');
+    } else if (e.etat === 'erreur') {
+      vueRemplir('depart');
+      $('#erreurRemplir').textContent = e.erreur;
+    }
+  }, 2500);
+}
+
+async function lancerRemplir(ev) {
+  ev.preventDefault();
+  const champ = $('#champSite');
+  $('#erreurRemplir').textContent = '';
+  if (!champ.value.trim()) { $('#erreurRemplir').textContent = 'Donnez l\'adresse du site.'; champ.focus(); return; }
+  try {
+    await api('/api/contexte/remplir', { corps: { url: champ.value } });
+    vueRemplir('attente');
+    $('#remplirDuree').textContent = 'Une à trois minutes. Vous pouvez fermer cette fenêtre : la proposition vous attendra.';
+    suivreRemplir();
+  } catch (e) { $('#erreurRemplir').textContent = e.message; }
+}
+
+async function garderProposition() {
+  const b = $('#boutonGarderProposition');
+  b.disabled = true;
+  try {
+    await enregistrerTexte('contexte', $('#zoneProposition').value);
+    app.propositionVue = true;
+    fermerFenetre('fenetreRemplir');
+    choisirSous('contexte');
+    chargerEtat();
+    toast('CONTEXTE.md enregistré.', 'ok');
+  } catch (e) { toast(e.message, 'erreur'); }
+  finally { b.disabled = false; }
+}
+
+// Aller à une section des Réglages (depuis la mise en route ou le menu).
+function allerA(cible) {
+  choisirOnglet('reglages');
+  const section = cible === 'fichiers' ? $('#sectionFichiers') : $('#sectionContexte');
+  if (cible === 'contexte') choisirSous('contexte');
+  // On fait défiler la colonne des Réglages seulement (jamais la page entière).
+  requestAnimationFrame(() => {
+    const vue = $('#vueReglages');
+    vue.scrollTo({ top: section.offsetTop - vue.offsetTop - 12, behavior: 'smooth' });
+  });
 }
 
 // ---------- Temps réel ----------
@@ -483,7 +932,8 @@ function ouvrirFlux() {
     if (!d) return;
     majClaude(d.claude);
     appliquerStatut(d.agent);
-    if (app.fluxDejaOuvert) { chargerDiscussion(); chargerEtat(); }
+    // Reconnexion : on rattrape ce qui a pu changer pendant la coupure (dont l'identité).
+    if (app.fluxDejaOuvert) { chargerDiscussion(); chargerEtat(); api('/api/marque').then(changerMarque).catch(() => {}); }
     app.fluxDejaOuvert = true;
   });
   flux.addEventListener('statut', (e) => {
@@ -515,7 +965,11 @@ function ouvrirFlux() {
   flux.addEventListener('fin', (e) => {
     const m = lire(e);
     if (m && m.discussion === app.discussion) finaliser(m);
+    // L'agent a pu écrire dans work/ ou dans sa mémoire.
+    if (!$('#vueReglages').hidden) { chargerFichiers(); chargerContexte(); }
   });
+  flux.addEventListener('marque', (e) => changerMarque(lire(e)));
+  flux.addEventListener('contexte', () => { chargerContexte(); chargerEtatPlusTard(); });
   flux.addEventListener('file', (e) => {
     const d = lire(e);
     if (d) appliquerStatut({ file: d.n });
@@ -552,7 +1006,8 @@ function choisirOnglet(nom) {
   $$('[data-onglet]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.onglet === nom)));
   $('#vueDiscussion').hidden = nom !== 'discussion';
   $('#vueReglages').hidden = nom !== 'reglages';
-  if (nom === 'reglages') chargerEtat();
+  document.body.classList.toggle('sur-reglages', nom === 'reglages');
+  if (nom === 'reglages') { chargerEtat(); chargerContexte(); chargerFichiers(); if (ctx.sous === 'documents') chargerDocuments(); }
   if (nom === 'discussion') requestAnimationFrame(() => defiler(true));
 }
 
@@ -572,6 +1027,7 @@ function fermerFenetre(id) {
   if (f.hidden) return;
   f.hidden = true;
   if (id === 'fenetreClaude') { $('#champCle').value = ''; $('#erreurCle').textContent = ''; $('#champCode').value = ''; }
+  if (id === 'fenetreRemplir' && !$('#remplirResultat').hidden) app.propositionVue = true;
   if (derniereFocalisation && derniereFocalisation.focus) derniereFocalisation.focus();
 }
 
@@ -810,7 +1266,64 @@ function brancherInterface() {
   // Menu ☰ (mobile)
   $('#boutonMenu').addEventListener('click', (e) => { e.stopPropagation(); basculerMenu(); });
   document.addEventListener('click', (e) => { if (!$('#menu').hidden && !e.target.closest('#menu')) basculerMenu(false); });
-  $$('[data-aller]').forEach((b) => b.addEventListener('click', () => { basculerMenu(false); choisirOnglet(b.dataset.aller); }));
+  $$('[data-aller]').forEach((b) => b.addEventListener('click', () => {
+    basculerMenu(false);
+    if (b.dataset.aller === 'fichiers') allerA('fichiers'); else choisirOnglet(b.dataset.aller);
+  }));
+
+  // Pièce jointe (trombone)
+  $('#boutonJoindre').addEventListener('click', () => $('#champJoindre').click());
+  $('#champJoindre').addEventListener('change', (e) => {
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
+    const pb = verifierFichier(f);
+    if (pb) { toast(pb, 'erreur'); e.target.value = ''; return; }
+    afficherPiece(f);
+    zone.focus();
+  });
+  $('#pieceRetirer').addEventListener('click', retirerPiece);
+  // Glisser un fichier sur la discussion = le joindre
+  const vueDisc = $('#vueDiscussion');
+  vueDisc.addEventListener('dragover', (e) => { if (e.dataTransfer && Array.from(e.dataTransfer.types).includes('Files')) { e.preventDefault(); vueDisc.classList.add('survol-fichier'); } });
+  vueDisc.addEventListener('dragleave', (e) => { if (e.target === vueDisc || !vueDisc.contains(e.relatedTarget)) vueDisc.classList.remove('survol-fichier'); });
+  vueDisc.addEventListener('drop', (e) => {
+    vueDisc.classList.remove('survol-fichier');
+    const f = e.dataTransfer && e.dataTransfer.files[0];
+    if (!f) return;
+    e.preventDefault();
+    const pb = verifierFichier(f);
+    if (pb) { toast(pb, 'erreur'); return; }
+    afficherPiece(f);
+  });
+
+  // Identité
+  $('#formIdentite').addEventListener('submit', enregistrerIdentite);
+  $('#formIdentite').addEventListener('input', () => { $('#formIdentite').dataset.modifie = '1'; });
+  $('#champBadge').addEventListener('input', (e) => { const p = e.target.selectionStart; e.target.value = e.target.value.toUpperCase().replace(/\s/g, ''); e.target.setSelectionRange(p, p); });
+  $('#boutonLogo').addEventListener('click', () => $('#champLogo').click());
+  $('#champLogo').addEventListener('change', (e) => envoyerLogo(e.target.files && e.target.files[0]));
+  $('#boutonRetirerLogo').addEventListener('click', retirerLogo);
+
+  // Contexte et mémoire
+  $$('[data-sous]').forEach((b) => b.addEventListener('click', () => choisirSous(b.dataset.sous)));
+  $('#boutonModifier').addEventListener('click', () => ouvrirEdition());
+  $('#boutonAnnulerTexte').addEventListener('click', () => { ctx.edition = false; rendreSousVue(); });
+  $('#boutonEnregistrerTexte').addEventListener('click', sauverEdition);
+  $('#zoneTexte').addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 's') { e.preventDefault(); sauverEdition(); } });
+  $('#boutonRemplir').addEventListener('click', ouvrirRemplir);
+  $('#formRemplir').addEventListener('submit', lancerRemplir);
+  $('#boutonGarderProposition').addEventListener('click', garderProposition);
+  $('#boutonAnnulerRemplir').addEventListener('click', async () => {
+    try { await api('/api/contexte/remplir/annuler', { corps: {} }); } catch { /* rien */ }
+  });
+
+  // Documents
+  $('#boutonDeposer').addEventListener('click', () => $('#champDeposer').click());
+  $('#champDeposer').addEventListener('change', (e) => deposerDocuments(e.target.files));
+  const depot = $('#depot');
+  depot.addEventListener('dragover', (e) => { e.preventDefault(); depot.classList.add('survol'); });
+  depot.addEventListener('dragleave', () => depot.classList.remove('survol'));
+  depot.addEventListener('drop', (e) => { e.preventDefault(); depot.classList.remove('survol'); deposerDocuments(e.dataTransfer.files); });
   $$('[data-deconnexion]').forEach((b) => b.addEventListener('click', seDeconnecter));
 
   // Scène repliable (mobile)
@@ -846,10 +1359,13 @@ async function demarrer() {
   app.moi = moi;
   app.marque = marque;
   appliquerMarque();
+  document.body.classList.toggle('est-admin', moi.role === 'admin');
+  $$('.admin-seul').forEach((e) => { if (moi.role !== 'admin') e.hidden = true; });
+  $$('.membre-seul').forEach((e) => { e.hidden = moi.role === 'admin'; });
+  if (moi.role !== 'admin') $$('#formIdentite .champ').forEach((c) => { c.readOnly = true; });
+  remplirIdentite();
   brancherInterface();
-  try {
-    app.bureau = creerBureau($('#scene3d'), { nom: marque.nomAgent, entreprise: marque.nomOutil, ...PERSONNAGE });
-  } catch (e) { console.warn('Bureau 3D indisponible :', e); }
+  creerScene();
   await Promise.all([chargerEtat(), chargerDiscussion()]);
   ouvrirFlux();
 }

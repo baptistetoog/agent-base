@@ -9,6 +9,7 @@ const { spawn } = require('child_process');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const espace = require('./espace');
 
 const RACINE = path.resolve(__dirname, '..');
 const DOSSIER_AGENT = path.join(RACINE, 'agent');
@@ -452,6 +453,11 @@ function majOutil(c, id, nom, entree) {
   } else if (entree && Object.keys(entree).length) {
     o.detail = phraseOutil(nom, entree);
   }
+  // Un fichier créé ou modifié dans work/ : la bulle affichera sa carte « Télécharger ».
+  if (/^(Write|Edit|MultiEdit)$/.test(nom) && entree && entree.file_path) {
+    const f = espace.nomDansWork(entree.file_path);
+    if (f && !c.fichiers.includes(f)) c.fichiers.push(f);
+  }
   changerStatut('outil', { detail: o.detail, libelle: o.libelle });
   diffuser('outils', { id: c.id, outils: c.outils.map(({ nom: n, libelle, detail }) => ({ nom: n, libelle, detail })) });
 }
@@ -516,7 +522,7 @@ function lancer(travail, relance, idExistant) {
   const c = {
     id: idExistant || nouvelId(), travail, discussion: etat.discussion,
     debut: Date.now(), texte: '', outils: [], erreurs: '', tampon: '',
-    resultat: null, sessionId: null, raison: null, separer: false, proc: null,
+    resultat: null, sessionId: null, raison: null, separer: false, proc: null, fichiers: [],
   };
   etat.courant = c;
   if (!idExistant) {
@@ -591,6 +597,7 @@ function terminer(c) {
     quand: maintenant(), debut: new Date(c.debut).toISOString(), pour: c.travail.entree.id,
     qui: { nom: NOM_AGENT }, texte,
     outils: c.outils.map(({ nom, libelle, detail }) => ({ nom, libelle, detail })),
+    fichiers: c.fichiers.filter((f) => espace.existe('work', f)),
     dureeMs: Date.now() - c.debut,
     coutUSD: c.resultat && typeof c.resultat.total_cost_usd === 'number' ? c.resultat.total_cost_usd : null,
     statut: statutFin,
@@ -612,15 +619,120 @@ function suivant() {
 
 // ---------- Ce que le serveur appelle ----------
 
+function changerNomAgent(nom) { if (nom) NOM_AGENT = nom; }
+
+// ---------- « Remplir à partir d'un site » ----------
+// Un lancement à part (pas dans la discussion) : Claude lit le site avec WebFetch et seulement WebFetch,
+// puis renvoie un CONTEXTE.md complété. Rien n'est enregistré ici : la page le fait relire avant.
+
+const DUREE_REMPLIR = 6 * 60 * 1000;
+let remplissage = null; // { etat: 'en-cours'|'fini'|'erreur', url, proposition, erreur, debut, proc }
+
+function consigneSite(url, modele) {
+  return [
+    `Tu prépares la fiche CONTEXTE.md d'une structure à partir de son site : ${url}`,
+    "",
+    "Parcours avec WebFetch les pages utiles de ce site (et seulement de ce site) : accueil, offres ou services, tarifs, à propos, contact, FAQ, mentions légales. 8 pages au maximum. Repère leurs liens depuis la page d'accueil.",
+    "",
+    "Puis renvoie UNIQUEMENT le fichier Markdown complet, sans phrase avant ni après, sans bloc de code, en gardant exactement ces titres et cet ordre :",
+    "",
+    modele,
+    "",
+    "Règles :",
+    "- N'écris que ce que tu as lu sur le site. N'invente rien, ne déduis aucun chiffre.",
+    "- Une rubrique pour laquelle tu n'as rien trouvé reste exactement « À compléter ».",
+    "- « Sa mission » et « Ce qu'il ne doit jamais faire » concernent l'agent IA : laisse-les « À compléter » (c'est à l'équipe de les écrire).",
+    "- « Notre ton » : décris en une ou deux phrases le ton du site (tutoiement ou vouvoiement, style).",
+    "- Phrases courtes, listes à puces si utile. En français.",
+    "- Dans « Coordonnées et liens utiles », mets l'adresse du site et les coordonnées publiques trouvées.",
+  ].join('\n');
+}
+
+function urlAcceptable(brut) {
+  let u;
+  try { u = new URL(String(brut || '').trim().replace(/^(?!https?:\/\/)/i, 'https://')); } catch { return null; }
+  if (!/^https?:$/.test(u.protocol)) return null;
+  const h = u.hostname.toLowerCase();
+  if (!h.includes('.') || /^(localhost|.*\.local|.*\.internal)$/.test(h)) return null;
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(h) || h.includes(':')) return null; // pas d'adresse IP : un vrai site
+  u.hash = '';
+  return u.toString();
+}
+
+function remplirDepuisSite(brut, modele) {
+  const url = urlAcceptable(brut);
+  if (!url) return { code: 400, erreur: 'Adresse invalide : donnez l\'adresse d\'un site, par exemple https://www.exemple.fr' };
+  const jeton = lireJeton();
+  if (!jeton) return { code: 409, erreur: 'Claude n\'est pas connecté.' };
+  if (remplissage && remplissage.etat === 'en-cours') return { code: 409, erreur: 'Un remplissage est déjà en cours. Patientez.' };
+  const r = { etat: 'en-cours', url, proposition: null, erreur: null, debut: Date.now(), proc: null };
+  remplissage = r;
+  const args = [
+    '-p', '--output-format', 'json', '--model', 'sonnet',
+    '--setting-sources', 'project', '--strict-mcp-config',
+    '--tools', 'WebFetch', '--allowedTools', 'WebFetch',
+    '--disallowedTools', 'Bash', 'Task', 'Agent', 'NotebookEdit', 'Write', 'Edit', 'Read', 'Glob', 'Grep', 'WebSearch',
+  ];
+  let sortie = '', erreurs = '';
+  try {
+    r.proc = spawn(CLAUDE, args, { cwd: DOSSIER_AGENT, env: environnement(jeton), stdio: ['pipe', 'pipe', 'pipe'], detached: true });
+  } catch {
+    r.etat = 'erreur'; r.erreur = MESSAGES_TEST.technique; return { code: 500, erreur: r.erreur };
+  }
+  r.proc.stdin.on('error', () => {});
+  r.proc.stdin.end(consigneSite(url, modele));
+  const minuterie = setTimeout(() => { r.raison = 'delai'; tuer(r.proc); }, DUREE_REMPLIR);
+  r.proc.stdout.on('data', (d) => { sortie += d; if (sortie.length > 400000) sortie = sortie.slice(-200000); });
+  r.proc.stderr.on('data', (d) => { erreurs += d; if (erreurs.length > 20000) erreurs = erreurs.slice(-10000); });
+  r.proc.on('error', () => {});
+  r.proc.on('close', () => {
+    clearTimeout(minuterie);
+    r.proc = null;
+    let res = null;
+    for (const ligne of sortie.trim().split('\n').reverse()) {
+      try { const o = JSON.parse(ligne); if (o && o.type === 'result') { res = o; break; } } catch { /* suivante */ }
+    }
+    let texte = res && !res.is_error ? String(res.result || '').trim() : '';
+    texte = texte.replace(/^```(?:markdown|md)?\s*\n/, '').replace(/\n```\s*$/, '').trim();
+    const i = texte.indexOf('# ');
+    if (i > 0) texte = texte.slice(i);
+    if (r.raison === 'arret') { r.etat = 'erreur'; r.erreur = 'Remplissage annulé.'; }
+    else if (r.raison === 'delai') { r.etat = 'erreur'; r.erreur = 'Le site a mis trop de temps à être lu. Réessayez.'; }
+    else if (!texte || !/Sa mission/.test(texte)) {
+      r.etat = 'erreur';
+      r.erreur = 'L\'agent n\'a pas réussi à lire ce site. Vérifiez l\'adresse et réessayez.';
+      console.error('Remplir à partir d\'un site :', court(masquer((res && res.result) || erreurs), 300));
+    } else { r.etat = 'fini'; r.proposition = texte + '\n'; }
+    r.duree = Date.now() - r.debut;
+    r.cout = res && typeof res.total_cost_usd === 'number' ? res.total_cost_usd : null;
+    console.log(`Remplir à partir d'un site : ${r.etat} (${new URL(url).hostname}, ${Math.round(r.duree / 1000)} s).`);
+  });
+  return { code: 200, ok: true, etat: 'en-cours', url };
+}
+
+function etatRemplissage() {
+  if (!remplissage) return { etat: 'aucun' };
+  const { etat: e, url, proposition, erreur, debut, duree } = remplissage;
+  return { etat: e, url, proposition, erreur, debut: new Date(debut).toISOString(), duree };
+}
+
+function annulerRemplissage() {
+  if (remplissage && remplissage.proc) { remplissage.raison = 'arret'; tuer(remplissage.proc); }
+  return etatRemplissage();
+}
+
 function init(options) {
   diffuser = options.diffuser || diffuser;
   NOM_AGENT = options.nomAgent || NOM_AGENT;
   chargerEtat();
 }
 
-function envoyer(texte, compte) {
-  const t = String(texte || '').replace(/\r\n/g, '\n').trim();
+function envoyer(texte, compte, fichier) {
+  let t = String(texte || '').replace(/\r\n/g, '\n').trim();
+  if (fichier && !espace.existe('documents', fichier)) return { code: 400, erreur: 'Le fichier joint est introuvable : joignez-le de nouveau.' };
+  if (!t && fichier) t = 'Voici un fichier.';
   if (!t) return { code: 400, erreur: 'Le message est vide.' };
+  if (fichier) t += `\n\nFichier joint : documents/${fichier}`;
   if (t.length > 20000) return { code: 413, erreur: 'Message trop long (20 000 caractères au maximum).' };
   if (!lireJeton()) {
     if (compte.role === 'admin') return { code: 409, erreur: 'Claude n\'est pas encore connecté : collez votre clé dans « Connecter Claude ».', connecter: true };
@@ -631,6 +743,7 @@ function envoyer(texte, compte) {
     type: 'message', id: nouvelId(), discussion: etat.discussion, role: 'utilisateur',
     quand: maintenant(), qui: { email: compte.email, nom: compte.nom }, texte: t,
   };
+  if (fichier) entree.fichier = fichier;
   ajouterHistorique(entree);
   diffuser('message', entree);
   const occupe = Boolean(etat.courant);
@@ -676,5 +789,6 @@ function discussion() {
 module.exports = {
   init, envoyer, arreter, nouvelleDiscussion, discussion, statut, enCours,
   etatClaude, connecterClaude, deconnecterClaude, nettoyerCle,
-  demarrerConnexion, finirConnexion,
+  demarrerConnexion, finirConnexion, changerNomAgent,
+  remplirDepuisSite, etatRemplissage, annulerRemplissage,
 };

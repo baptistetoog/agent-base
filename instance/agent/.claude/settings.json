@@ -28,6 +28,8 @@
       "Edit(//proc)",
       "Edit(//proc/**)",
       "Edit(//home/agentforma/agent/CLAUDE.md)",
+      "Edit(//home/agentforma/agent/regles.md)",
+      "Edit(//home/agentforma/agent/CONTEXTE.md)",
       "Edit(//home/agentforma/agent/.claude/settings.json)",
       "Edit(//home/agentforma/agent/.claude/settings.local.json)",
       "Edit(//home/agentforma/agent/.mcp.json)",

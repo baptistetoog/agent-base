@@ -1,6 +1,6 @@
 # 6. L'identité, le contexte et la mémoire de l'agent
 
-**Ce qu'on voit à la fin :** l'espace prend le nom, le logo et le nom d'agent qu'on veut (Réglages › Identité). L'agent sait qui il est, pour qui il travaille et ce qu'il doit faire. On lui donne du contexte (une fiche et des documents). Il retient ce qu'on lui apprend d'une discussion à l'autre, et la section « Contexte et mémoire » montre ce qu'il a retenu.
+**Ce qu'on voit à la fin :** l'espace prend le nom, le logo et le nom d'agent qu'on veut (Réglages › Identité). L'agent sait qui il est, pour qui il travaille et ce qu'il doit faire. On lui donne du contexte (une fiche et des documents, aussi joints directement dans la discussion), et on récupère les fichiers qu'il produit. Quand il ne sait pas, il le dit et demande un document au lieu d'inventer. Il retient ce qu'on lui apprend d'une discussion à l'autre, et la section « Contexte et mémoire » montre ce qu'il a retenu.
 
 ---
 
@@ -14,6 +14,7 @@ L'agent reste générique : on ne lui donne pas encore de métier. On lui constr
      @CONTEXTE.md
      @memoire.md
      @regles.md
+   - Il ne sort jamais de son dossier agent/.
    - Qui il est : « {NOM_AGENT} », un assistant IA qui travaille pour la structure décrite dans CONTEXTE.md. Sa mission précise est écrite dans CONTEXTE.md (rubrique « Sa mission ») : il s'y tient.
    - Sa méthode générale : comprendre la demande, regarder d'abord ce qu'il sait déjà (contexte, documents, mémoire), puis répondre ou faire, de façon courte et claire. S'il lui manque une information, il pose UNE question précise plutôt que d'inventer.
    - Ses documents : le dossier agent/documents/ contient des documents déposés par l'équipe (textes, PDF, tableaux). Il les consulte quand la demande s'y rapporte et cite le document utilisé.
@@ -22,7 +23,7 @@ L'agent reste générique : on ne lui donne pas encore de métier. On lui constr
 
 2. LE CONTEXTE :
    - agent/CONTEXTE.md : la fiche d'identité de la structure pour laquelle il travaille. Crée-la avec ces rubriques, toutes marquées « À compléter » : Qui nous sommes, Ce que nous proposons, Nos clients, Notre ton, Sa mission (ce que l'agent doit faire pour nous), Ce qu'il ne doit jamais faire, Coordonnées et liens utiles. N'invente rien.
-   - Un bouton « Remplir à partir d'un site » (admin) : on donne l'adresse d'un site, l'agent le parcourt (pages utiles : accueil, offres, à propos, contact, FAQ, mentions légales) et propose un CONTEXTE.md complété, qu'on relit dans la page avant de l'enregistrer. Ce qu'il ne trouve pas reste « À compléter ».
+   - Un bouton « Remplir à partir d'un site » (admin) : on donne l'adresse d'un site, l'agent le parcourt (pages utiles : accueil, offres, à propos, contact, FAQ, mentions légales) (lancement à part, avec seulement WebFetch, en tâche de fond, 3 minutes maximum) et propose un CONTEXTE.md complété, sans jamais remplir « Sa mission » ni « Ce qu'il ne doit jamais faire » (c'est à vous de les écrire), qu'on relit dans la page avant de l'enregistrer. Ce qu'il ne trouve pas reste « À compléter ».
    - agent/regles.md : les règles communes. Contenu : Réponds en français, de façon courte et claire, sur le ton indiqué dans CONTEXTE.md. Ne jamais inventer de chiffre ni de fait. Dire quand une information manque. Ne jamais afficher de clé, de jeton ou de mot de passe.
    - L'agent peut lire CONTEXTE.md et regles.md mais pas les modifier (ajoute-les aux règles deny Edit de agent/.claude/settings.json) : seuls les admins les changent, depuis l'outil.
    - Les documents : dans l'outil, une zone « Documents » où un admin dépose des fichiers (glisser-déposer ou bouton, 20 Mo maximum, formats texte, Markdown, PDF, CSV, images), les voit en liste (nom, taille, date) et peut les supprimer. Ils sont enregistrés dans agent/documents/ avec un nom nettoyé (pas de chemin, pas de fichier caché).
@@ -31,9 +32,15 @@ L'agent reste générique : on ne lui donne pas encore de métier. On lui constr
    - agent/memoire.md commence vide : un titre, une phrase d'explication et les quatre rubriques (Préférences, Décisions, Infos utiles, À ne plus faire).
    - Dans CLAUDE.md, ajoute une section « Ta mémoire » : quand on lui apprend quelque chose de durable (une préférence, une décision, une info utile, une erreur à ne plus refaire), il l'ajoute à memoire.md en une ligne datée, dans la bonne rubrique. Il ne garde pas les choses passagères. Il corrige ou supprime une ligne devenue fausse. Le fichier reste sous 150 lignes. Quand il retient quelque chose, il le dit en une phrase (« Je retiens : … »).
 
-4. DANS L'OUTIL : dans l'onglet « Réglages », une section « Contexte et mémoire » (avec le système de design design.css) qui affiche, en sous-onglets, CONTEXTE.md, memoire.md, regles.md, la fiche CLAUDE.md et les documents. Un admin peut modifier et enregistrer ; un membre lit seulement. Côté serveur, seuls ces fichiers et le dossier documents/ sont accessibles par cette page. L'étape 2 de la carte « Mise en route » (« Donner son contexte à l'agent ») devient active : elle mène à cette section et se coche quand la rubrique « Sa mission » de CONTEXTE.md n'est plus « À compléter ». Le voyant « Contexte » de l'État du système suit la même règle.
+4. DANS L'OUTIL : dans l'onglet « Réglages », une section « Contexte et mémoire » (avec le système de design design.css) qui affiche, en sous-onglets, CONTEXTE.md, memoire.md, regles.md, la fiche CLAUDE.md et les documents. Un admin peut modifier et enregistrer ; un membre lit seulement. Côté serveur, seuls ces fichiers et le dossier documents/ sont accessibles par cette page. L'étape 2 de la carte « Mise en route » (« Donner son contexte à l'agent ») devient active : elle mène à cette section et se coche quand la rubrique « Sa mission » de CONTEXTE.md contient autre chose que « À compléter ». Le voyant « Contexte » de l'État du système suit la même règle.
 
-5. L'IDENTITÉ DE L'ESPACE : en tête de l'onglet « Réglages », une section « Identité » (admin ; un membre la voit sans pouvoir la modifier) pour personnaliser l'espace sans toucher au code :
+5. LES FICHIERS DANS LES DEUX SENS :
+   - Déposer : en plus de la zone « Documents » des Réglages, un bouton trombone 📎 dans la zone de saisie de la discussion permet à tout compte connecté de joindre un fichier à un message, ou de le glisser-déposer (mêmes règles : 20 Mo, formats texte, Markdown, PDF, CSV, images PNG/JPEG/GIF/WebP ; envoi en corps brut, pas en JSON). Le fichier est rangé dans agent/documents/ et le message envoyé à l'agent se termine par « Fichier joint : documents/<nom> ». La bulle montre le fichier joint.
+   - Récupérer : une section « Fichiers de l'agent » (onglet Réglages, et un bouton dans l'en-tête sur ordinateur ou le menu ☰ sur mobile ; un membre lit et télécharge) liste tout ce que l'agent a produit dans agent/work/ (nom, taille, date), avec un bouton « Télécharger » et un aperçu pour les fichiers texte et Markdown ; un admin peut supprimer. Dans la discussion, quand l'agent crée ou modifie un fichier de agent/work/, sa bulle affiche une petite carte « 📄 <nom> · Télécharger ». Côté serveur, le téléchargement ne sert que des fichiers de agent/work/ et agent/documents/ (noms nettoyés, aucun chemin, aucun lien symbolique suivi), toujours derrière la connexion.
+
+6. L'OBLIGATION DE S'INFORMER : dans CLAUDE.md, une section « Avant de répondre », en tête des règles : avant toute réponse qui touche à la structure (offres, prix, clients, procédures, chiffres, personnes), il DOIT d'abord consulter CONTEXTE.md, sa mémoire et la liste de agent/documents/ (et lire les documents qui s'y rapportent). Si l'information n'y est pas, il ne l'invente jamais : il répond « Je n'ai pas cette information » et propose la solution la plus simple : « Déposez-moi un document (📎) ou dites-le-moi, je le retiendrai. » Seulement quand une rubrique de CONTEXTE.md encore « À compléter » est nécessaire pour CETTE demande, il le signale en une phrase (sinon il n'en parle pas).
+
+7. L'IDENTITÉ DE L'ESPACE : en tête de l'onglet « Réglages », une section « Identité » (admin ; un membre la voit sans pouvoir la modifier) pour personnaliser l'espace sans toucher au code :
    - le nom de l'espace (affiché dans l'en-tête, l'onglet du navigateur et la page de connexion) ;
    - le logo : envoi d'une image PNG, JPEG ou SVG (2 Mo maximum), avec un aperçu et un bouton « Retirer le logo ». Il remplace le carré avec l'initiale dans l'en-tête et sur la page de connexion, et sert d'icône d'onglet. Le serveur vérifie le vrai type du fichier, l'enregistre sous un nom fixe dans data/ et le sert par une route publique /api/logo (un SVG est servi avec une politique de sécurité qui interdit tout script) ;
    - le nom de l'agent : celui de son étiquette au-dessus de la scène, de sa bulle de bienvenue et de l'écran de son ordinateur dans le bureau 3D ;
@@ -46,6 +53,8 @@ Vérifie toi-même (compte de test créé puis supprimé) :
 - dépose un petit document de test (un fichier texte qui dit que « le code interne du projet est ORION-7 ») et demande à l'agent « Quel est le code interne du projet ? » : il doit le trouver dans le document et le citer ; supprime ensuite ce document ;
 - dis à l'agent « Retiens que je préfère des réponses en listes à puces ». Vérifie que memoire.md contient la ligne. Puis, dans une NOUVELLE discussion, demande-lui comment je préfère les réponses : il doit le savoir. Retire ensuite cette ligne de test de memoire.md ;
 - demande-lui de modifier regles.md : il doit échouer.
+- joins un petit fichier texte à un message avec le trombone (par l'API) et vérifie que l'agent le lit ; demande-lui d'écrire un court fichier work/essai.md, vérifie qu'il apparaît dans « Fichiers de l'agent » et se télécharge, puis supprime les deux ;
+- demande-lui « Quels sont nos tarifs ? » : CONTEXTE.md étant vide, il doit dire qu'il n'a pas l'information et proposer de déposer un document.
 Laisse CONTEXTE.md avec ses rubriques « À compléter ». Mets à jour PROJET.md.
 ```
 

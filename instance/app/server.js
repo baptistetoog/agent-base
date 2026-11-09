@@ -7,6 +7,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const agent = require('./agent');
+const espace = require('./espace');
 
 process.umask(0o077); // tout fichier créé par le serveur n'est lisible que par son propriétaire
 
@@ -232,16 +233,22 @@ function diffuser(evenement, donnees) {
 }
 setInterval(() => { for (const res of abonnes) { try { res.write(': ping\n\n'); } catch { abonnes.delete(res); } } }, 20000).unref();
 
-agent.init({ diffuser, nomAgent: NOM_AGENT });
+// Identité de l'espace : data/identite.json est prioritaire sur NOM_OUTIL / NOM_AGENT du service.
+espace.init({
+  nomOutil: NOM_OUTIL, nomAgent: NOM_AGENT,
+  surChangementNom: (nom) => agent.changerNomAgent(nom),
+});
+agent.init({ diffuser, nomAgent: espace.identite().nomAgent });
 
 // État de la mise en route et voyants du système.
 // Les étapes 2 à 4 arrivent aux étapes suivantes de l'installation : passer « disponible » à true
 // et brancher « fait » quand leur fonction sera installée.
 function etatSysteme() {
   const claude = agent.etatClaude();
+  const contexte = espace.missionRemplie(); // « Sa mission » de CONTEXTE.md n'est plus « À compléter »
   const etapes = [
     { id: 'claude', titre: 'Connecter Claude', disponible: true, fait: claude.connecte },
-    { id: 'contexte', titre: 'Donner son contexte à l\'agent', disponible: false, fait: false },
+    { id: 'contexte', titre: 'Donner son contexte à l\'agent', disponible: true, fait: contexte },
     { id: 'outil', titre: 'Brancher un premier outil (MCP ou clé API)', disponible: false, fait: false },
     { id: 'mission', titre: 'Lui confier une première mission automatique', disponible: false, fait: false },
   ];
@@ -251,7 +258,7 @@ function etatSysteme() {
     miseEnRoute: { etapes, terminee: etapes.every((e) => e.fait) },
     voyants: {
       claude: { disponible: true, ok: claude.connecte, texte: claude.connecte ? 'Connecté' : 'Non connecté' },
-      contexte: { disponible: false, ok: false, texte: 'Bientôt disponible' },
+      contexte: { disponible: true, ok: contexte, texte: contexte ? 'Mission définie' : 'Mission à compléter' },
       connexions: { disponible: false, ok: false, texte: 'Bientôt disponible' },
       automatisation: { disponible: false, ok: false, texte: 'Bientôt disponible' },
     },
@@ -266,6 +273,23 @@ function json(res, code, objet, entetes = {}) {
 function rediriger(res, vers) {
   res.writeHead(302, { Location: vers, 'Cache-Control': 'no-store' });
   res.end();
+}
+
+// Corps brut (envoi d'un fichier).
+function lireBrut(req, max) {
+  return new Promise((resolve, reject) => {
+    const annonce = parseInt(req.headers['content-length'] || '0', 10);
+    if (annonce > max) { reject(new Error('trop gros')); req.resume(); return; }
+    let taille = 0;
+    const morceaux = [];
+    req.on('data', (m) => {
+      taille += m.length;
+      if (taille > max) { reject(new Error('trop gros')); req.destroy(); return; }
+      morceaux.push(m);
+    });
+    req.on('end', () => resolve(Buffer.concat(morceaux)));
+    req.on('error', reject);
+  });
 }
 
 function lireCorps(req, max = 16 * 1024) {
@@ -329,14 +353,9 @@ async function traiter(req, res) {
   try { chemin = decodeURIComponent(url.pathname); } catch { return json(res, 400, { erreur: 'Adresse invalide' }); }
   const methode = req.method;
 
-  // Route publique : la marque (nom de l'outil, de l'agent, initiale).
-  if (chemin === '/api/marque' && methode === 'GET') {
-    return json(res, 200, {
-      nomOutil: NOM_OUTIL,
-      nomAgent: NOM_AGENT,
-      initiale: (NOM_OUTIL.trim()[0] || '?').toUpperCase(),
-    });
-  }
+  // Routes publiques : la marque (nom de l'espace, de l'agent, initiale, badge, logo) et le logo.
+  if (chemin === '/api/marque' && methode === 'GET') return json(res, 200, espace.marque());
+  if (chemin === '/api/logo' && (methode === 'GET' || methode === 'HEAD')) return espace.servirLogo(res);
 
   // Connexion.
   if (chemin === '/api/connexion' && methode === 'POST') {
@@ -403,6 +422,33 @@ async function traiter(req, res) {
     return;
   }
 
+  // Envois de fichiers (corps brut) : en-tête X-Nom-Fichier obligatoire. Un autre site ne peut pas
+  // poser cet en-tête sans autorisation CORS : même protection que l'exigence de JSON ci-dessous.
+  const ENVOIS = new Set(['/api/identite/logo', '/api/documents', '/api/joindre']);
+  if (methode === 'POST' && ENVOIS.has(chemin)) {
+    if (!req.headers['x-nom-fichier']) return json(res, 415, { erreur: 'Envoi de fichier attendu.' });
+    let nom;
+    try { nom = decodeURIComponent(String(req.headers['x-nom-fichier'])); } catch { return json(res, 400, { erreur: 'Nom de fichier invalide.' }); }
+    if (chemin === '/api/identite/logo') {
+      if (!estAdmin) return json(res, 403, { erreur: 'Seul un admin peut changer le logo.' });
+      let buf;
+      try { buf = await lireBrut(req, espace.MAX_LOGO); } catch { return json(res, 413, { erreur: 'Le logo dépasse 2 Mo.' }); }
+      const r = espace.enregistrerLogo(buf);
+      if (r.erreur) return json(res, 400, r);
+      console.log(`Logo changé par ${session.compte.email}.`);
+      diffuser('marque', r.marque);
+      return json(res, 200, r);
+    }
+    // Documents (Réglages, admin) ou fichier joint à un message (trombone, tout compte connecté).
+    if (chemin === '/api/documents' && !estAdmin) return json(res, 403, { erreur: 'Seul un admin peut déposer des documents.' });
+    let buf;
+    try { buf = await lireBrut(req, espace.MAX_DOCUMENT); } catch { return json(res, 413, { erreur: 'Le fichier dépasse 20 Mo.' }); }
+    const r = espace.deposer(nom, buf);
+    const { code, ...reste } = r;
+    if (r.ok) console.log(`Document déposé par ${session.compte.email} : ${r.document.nom}`);
+    return json(res, code, reste);
+  }
+
   if (methode === 'POST' && chemin.startsWith('/api/')) {
     // Les envois de l'interface sont toujours en JSON (protection contre les formulaires d'autres sites).
     if (!String(req.headers['content-type'] || '').includes('application/json')) {
@@ -410,10 +456,77 @@ async function traiter(req, res) {
     }
   }
 
+  // ----- Identité de l'espace -----
+  if (chemin === '/api/identite' && methode === 'POST') {
+    if (!estAdmin) return json(res, 403, { erreur: 'Seul un admin peut modifier l\'identité.' });
+    let corps;
+    try { corps = await lireCorps(req); } catch { return json(res, 413, { erreur: 'Requête trop grosse' }); }
+    const r = espace.changerIdentite(corps);
+    if (r.erreur) return json(res, 400, r);
+    console.log(`Identité modifiée par ${session.compte.email}.`);
+    diffuser('marque', r.marque);
+    return json(res, 200, r);
+  }
+  if (chemin === '/api/identite/logo/retirer' && methode === 'POST') {
+    if (!estAdmin) return json(res, 403, { erreur: 'Seul un admin peut retirer le logo.' });
+    const r = espace.retirerLogo();
+    diffuser('marque', r.marque);
+    return json(res, 200, r);
+  }
+
+  // ----- Contexte et mémoire (seuls CONTEXTE.md, memoire.md, regles.md, CLAUDE.md) -----
+  if (chemin === '/api/contexte' && methode === 'GET') return json(res, 200, { ...espace.lireContexte(), admin: estAdmin });
+  if (chemin === '/api/contexte/remplir' && methode === 'GET') return json(res, 200, agent.etatRemplissage());
+  if (chemin === '/api/contexte/remplir' && methode === 'POST') {
+    if (!estAdmin) return json(res, 403, { erreur: 'Seul un admin peut remplir le contexte.' });
+    let corps;
+    try { corps = await lireCorps(req); } catch { return json(res, 413, { erreur: 'Adresse trop longue' }); }
+    const r = agent.remplirDepuisSite(corps.url, espace.MODELE_CONTEXTE);
+    const { code, ...reste } = r;
+    return json(res, code, reste);
+  }
+  if (chemin === '/api/contexte/remplir/annuler' && methode === 'POST') {
+    if (!estAdmin) return json(res, 403, { erreur: 'Réservé aux admins.' });
+    return json(res, 200, agent.annulerRemplissage());
+  }
+  const mContexte = chemin.match(/^\/api\/contexte\/(contexte|memoire|regles|fiche)$/);
+  if (mContexte && methode === 'POST') {
+    if (!estAdmin) return json(res, 403, { erreur: 'Seul un admin peut modifier ces fichiers.' });
+    let corps;
+    try { corps = await lireCorps(req, 400 * 1024); } catch { return json(res, 413, { erreur: 'Texte trop long (200 Ko au maximum).' }); }
+    const r = espace.ecrireContexte(mContexte[1], corps.contenu);
+    const { code, ...reste } = r;
+    if (r.ok) {
+      console.log(`${mContexte[1]} modifié par ${session.compte.email}.`);
+      diffuser('contexte', { id: mContexte[1], missionRemplie: r.missionRemplie });
+    }
+    return json(res, code, reste);
+  }
+
+  // ----- Documents déposés et fichiers de l'agent -----
+  if (chemin === '/api/documents' && methode === 'GET') return json(res, 200, { documents: espace.lister('documents'), admin: estAdmin });
+  if (chemin === '/api/fichiers' && methode === 'GET') return json(res, 200, { fichiers: espace.lister('work'), admin: estAdmin });
+  if ((chemin === '/api/documents/supprimer' || chemin === '/api/fichiers/supprimer') && methode === 'POST') {
+    if (!estAdmin) return json(res, 403, { erreur: 'Seul un admin peut supprimer un fichier.' });
+    let corps;
+    try { corps = await lireCorps(req); } catch { return json(res, 413, { erreur: 'Requête trop grosse' }); }
+    const dossier = chemin === '/api/documents/supprimer' ? 'documents' : 'work';
+    const r = espace.supprimer(dossier, corps.nom);
+    const { code, ...reste } = r;
+    if (r.ok) console.log(`Fichier supprimé par ${session.compte.email} : ${dossier}/${corps.nom}`);
+    return json(res, code, reste);
+  }
+  if (chemin === '/api/telecharger' && methode === 'GET') {
+    const dossier = url.searchParams.get('dossier');
+    if (dossier !== 'work' && dossier !== 'documents') return json(res, 404, { erreur: 'Introuvable' });
+    return espace.servirFichier(res, dossier, url.searchParams.get('nom'), url.searchParams.get('apercu') === '1');
+  }
+
   if (chemin === '/api/message' && methode === 'POST') {
     let corps;
     try { corps = await lireCorps(req, 128 * 1024); } catch { return json(res, 413, { erreur: 'Message trop long' }); }
-    const r = agent.envoyer(corps.texte, session.compte);
+    const fichier = corps.fichier ? String(corps.fichier) : null;
+    const r = agent.envoyer(corps.texte, session.compte, fichier);
     const { code, ...reste } = r;
     return json(res, code, reste);
   }

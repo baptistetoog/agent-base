@@ -63,6 +63,7 @@ button { font: inherit; color: inherit; }
   background: var(--accent); color: var(--sur-accent);
   display: grid; place-items: center; font-weight: 700; font-size: 17px;
 }
+.marque-logo { flex: none; width: auto; height: 34px; max-width: 140px; object-fit: contain; border-radius: 8px; }
 .marque-nom { font-weight: 600; font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* ---------- Carte ---------- */
@@ -138,6 +139,8 @@ button.pastille.attention:hover { border-color: var(--orange); }
   transition: border-color var(--transition), box-shadow var(--transition);
 }
 .champ:focus { outline: none; border-color: var(--accent); box-shadow: var(--anneau); }
+.champ-aide { display: block; font-size: 12.5px; color: var(--texte-2); margin-top: 6px; }
+.champ[readonly] { background: var(--fond); color: var(--texte-2); }
 .champ::placeholder { color: color-mix(in srgb, var(--texte-2) 75%, transparent); }
 
 /* ---------- Onglets ---------- */
@@ -214,6 +217,7 @@ button.pastille.attention:hover { border-color: var(--orange); }
 .page-connexion { min-height: 100vh; min-height: 100dvh; display: grid; place-items: center; padding: 24px 16px; }
 .page-connexion .carte { width: 100%; max-width: 400px; padding: 32px 28px; }
 .page-connexion .marque { justify-content: center; margin-bottom: 22px; }
+.page-connexion .marque-logo { height: 48px; max-width: 200px; }
 .page-connexion h1 { font-size: 20px; font-weight: 600; margin: 0 0 20px; text-align: center; }
 .page-connexion .champ { margin-bottom: 16px; }
 .page-connexion .bouton { width: 100%; margin-top: 4px; min-height: 46px; font-size: 15px; }

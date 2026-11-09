@@ -4,10 +4,10 @@
 
 ## Paramètres
 
-- Nom de l'outil : Espace agent — nom de l'agent : Mon agent
+- Nom de l'outil : Espace agent — nom de l'agent : Mon agent (valeurs du service ; Réglages › Identité les remplace sans toucher au code, voir plus bas)
 - Adresse : https://agentforma.toog-expertise.app — port local : 4910
 - Charte neutre (on la changera plus tard, dans un seul bloc : « CHARTE » en haut de `app/public/design.css`) : fond #F5F6F8, surface #FFFFFF, texte #1F2430, accent #3B5BDB, accent secondaire #0CA678, police « Inter » (Google Fonts) pour tout. Pas de logo : un carré arrondi couleur accent avec l'initiale de l'outil.
-- Personnage du bureau 3D : corps #4C5A70, yeux #FFD43B, badge « IA », accessoire « aucun ».
+- Personnage du bureau 3D : corps #4C5A70, yeux #FFD43B, badge « IA » (modifiable dans Réglages › Identité), accessoire « aucun ».
 
 ## Organisation des dossiers (dans /home/agentforma)
 
@@ -15,13 +15,21 @@
   - `app/server.js` : le serveur (Node.js 22, aucune dépendance npm)
   - `app/agent.js` : le cerveau (lance Claude Code pour chaque message, file d'attente, clé Claude)
   - `app/creer-compte.js` : créer, modifier ou supprimer un compte
+  - `app/espace.js` : identité de l'espace (nom, logo, agent, badge), fichiers de contexte, documents déposés, fichiers produits par l'agent (seuls chemins accessibles par l'outil)
   - `app/public/` : les pages
     - `design.css` : le système de design de TOUTES les pages (charte + composants .carte, .bouton, .bouton-secondaire, .pastille, .onglets, .fenetre, .toast, .vide, .squelette)
     - `connexion.html`, `connexion.js` : la page de connexion
     - `index.html`, `bureau.css`, `app.js`, `markdown.js` : le bureau de l'agent
     - `bureau3d.js` : la scène 3D, copiée TELLE QUELLE depuis le dépôt commun (kit/bureau3d.js) ; ne pas la modifier
-- `data/` : les données privées (droits 700, fichiers en 600) : `comptes.json`, `sessions.json`, `historique.jsonl`, `agent-etat.json` (session Claude à reprendre + discussion en cours), `claude.json` (date de connexion de Claude)
-- `agent/` : le dossier de travail de l'agent : `CLAUDE.md` (fiche provisoire), `.claude/settings.json` (interdictions)
+- `data/` : les données privées (droits 700, fichiers en 600) : `comptes.json`, `sessions.json`, `historique.jsonl`, `agent-etat.json` (session Claude à reprendre + discussion en cours), `claude.json` (date de connexion de Claude), `identite.json` (nom de l'espace, de l'agent, badge, logo ; n'existe qu'après un premier « Enregistrer »), `logo` (le logo, nom fixe, type rangé dans identite.json)
+- `agent/` : le dossier de travail de l'agent :
+  - `CLAUDE.md` : sa fiche de poste, chargée à chaque message. Commence par `@CONTEXTE.md`, `@memoire.md`, `@regles.md` (imports). Sections : Qui tu es (la ligne « Tu t'appelles « … » » suit le nom de l'agent), Avant de répondre (obligation de s'informer), Ta méthode, Tes documents, Tes livrables, Ta mémoire.
+  - `CONTEXTE.md` : la fiche d'identité de la structure (7 rubriques, « À compléter » au départ). L'agent la lit, ne la modifie pas.
+  - `memoire.md` : ce qu'il retient (Préférences, Décisions, Infos utiles, À ne plus faire), une ligne datée par info, moins de 150 lignes. Il l'écrit lui-même.
+  - `regles.md` : les règles communes. L'agent la lit, ne la modifie pas.
+  - `documents/` : les documents déposés par l'équipe (Réglages ou trombone de la discussion).
+  - `work/` : ses livrables (un fichier par travail), téléchargeables dans « Fichiers de l'agent ».
+  - `.claude/settings.json` : interdictions
 - `sauvegardes/` : archives faites avant chaque étape
 - `.claude-token.env` : la clé Claude (600), écrite par la fenêtre « Connecter Claude ». Ne jamais l'afficher.
 - `PROJET.md` : ce fichier
@@ -29,7 +37,8 @@
 Où changer quoi :
 - Les couleurs et la police : le bloc « CHARTE » en haut de `app/public/design.css` (seul endroit où sont définies les couleurs).
 - Le personnage 3D (couleurs, badge, accessoire) : la constante `PERSONNAGE` en haut de `app/public/app.js`.
-- Le nom de l'outil et de l'agent : les lignes `Environment=` du service (voir plus bas), puis redémarrer. Ils ne sont écrits nulle part dans le code ; les pages les lisent par `GET /api/marque`.
+- Le nom de l'espace, le logo, le nom de l'agent et son badge : Réglages › Identité (admin). Rangés dans `data/identite.json`, prioritaires sur `NOM_OUTIL` / `NOM_AGENT` du service (qui ne servent plus que de valeurs par défaut). Les pages les lisent par `GET /api/marque` ; la scène 3D est recréée tout de suite.
+- Ce que l'agent sait (contexte, mémoire, règles, fiche) et ses documents : Réglages › Contexte et mémoire.
 
 ## Le service
 
@@ -66,7 +75,10 @@ Commandes (en root) :
 - « Nouvelle discussion » : vide la file, arrête le travail en cours, oublie le session_id. La discussion est commune à toute l'équipe.
 - Si la conversation à reprendre n'existe plus, on relance une fois sans `--resume`.
 - Historique : `data/historique.jsonl`, une ligne par message (`role` utilisateur/agent, `qui`, `quand`, `texte`, `outils`, `dureeMs`, `coutUSD`, `statut` ok/arrete/delai/erreur, `discussion`) ; une ligne `type: nouvelle` à chaque nouvelle discussion.
-- Interdictions de l'agent : `agent/.claude/settings.json` (`disableAllHooks`, `permissions.deny` en `Read(//…)` / `Edit(//…)`) : data/, app/, ~/.claude*, ~/.claude-token.env et /proc en lecture et en écriture ; sa propre configuration (CLAUDE.md, settings.json, settings.local.json, .mcp.json) et les fichiers cachés et .md à la racine de /home/agentforma en écriture. Ne JAMAIS redonner Bash à l'agent.
+- Interdictions de l'agent : `agent/.claude/settings.json` (`disableAllHooks`, `permissions.deny` en `Read(//…)` / `Edit(//…)`) : data/, app/, ~/.claude*, ~/.claude-token.env et /proc en lecture et en écriture ; sa propre configuration (CLAUDE.md, settings.json, settings.local.json, .mcp.json), CONTEXTE.md, regles.md et les fichiers cachés et .md à la racine de /home/agentforma en écriture. Il peut écrire memoire.md et dans work/. Ne JAMAIS redonner Bash à l'agent.
+- Fichiers produits : quand l'agent écrit (Write/Edit) un fichier directement dans `agent/work/`, son nom est ajouté à la ligne d'historique (`fichiers`) et la bulle affiche une carte « 📄 nom · Télécharger ».
+- Fichier joint (trombone) : le fichier est rangé dans `agent/documents/` (`POST /api/joindre`), puis le message part avec `fichier` ; le serveur ajoute « Fichier joint : documents/<nom> » à la fin du texte envoyé à l'agent, et la ligne d'historique garde `fichier`.
+- « Remplir à partir d'un site » : lancement à part (`claude -p --tools WebFetch`, 6 minutes max, un seul à la fois), hors de la discussion ; le résultat est une proposition relue dans la page, jamais enregistrée sans clic. « Sa mission » et « Ce qu'il ne doit jamais faire » restent « À compléter » (c'est à l'équipe de les écrire).
 - Tous les fichiers de agent/ appartiennent à agentforma.
 
 ## Connecter Claude
@@ -86,7 +98,13 @@ Commandes (en root) :
 - `POST /api/message` `{texte}`, `POST /api/arreter`, `POST /api/nouvelle`.
 - `POST /api/claude/connecter` `{cle}`, `POST /api/claude/deconnecter` (admin).
 - `POST /api/claude/lien` (admin) : lance `claude setup-token`, renvoie `{lien}`. `POST /api/claude/code` `{code}` (admin) : échange le code contre la clé, la teste et l'enregistre ; en cas d'échec renvoie `relancer: true`.
-- Mise en route : les étapes 2 à 4 sont « Bientôt disponible ». À l'étape qui installe chaque fonction : dans `etatSysteme()` de `app/server.js`, passer `disponible` à `true` et brancher `fait` (et le voyant correspondant).
+- `GET /api/marque` (public) : nomOutil, nomAgent, initiale, badge, logo (adresse versionnée ou null). `GET /api/logo` (public) : le logo ; un SVG est servi avec une CSP sans script et `sandbox`.
+- `POST /api/identite` `{nomOutil, nomAgent, badge}` (admin), `POST /api/identite/logo` (admin, corps brut ≤ 2 Mo, PNG/JPEG/SVG vérifiés par leurs premiers octets), `POST /api/identite/logo/retirer` (admin). Événement temps réel `marque`.
+- `GET /api/contexte` : CONTEXTE.md, memoire.md, regles.md, CLAUDE.md (et rien d'autre). `POST /api/contexte/{contexte|memoire|regles|fiche}` `{contenu}` (admin, 200 Ko max). Événement `contexte`.
+- `POST /api/contexte/remplir` `{url}` (admin) puis `GET /api/contexte/remplir` (état + proposition), `POST /api/contexte/remplir/annuler`.
+- `GET /api/documents`, `POST /api/documents` (admin), `POST /api/documents/supprimer` `{nom}` (admin) ; `POST /api/joindre` (tout compte : fichier joint à un message). `GET /api/fichiers`, `POST /api/fichiers/supprimer` `{nom}` (admin). `GET /api/telecharger?dossier=work|documents&nom=…[&apercu=1]` : seulement ces deux dossiers, noms nettoyés, aucun chemin, aucun lien symbolique suivi.
+- Envois de fichiers : corps brut + en-tête `X-Nom-Fichier` (nom encodé) obligatoire, 20 Mo max, formats .txt .md .markdown .csv .pdf .png .jpg .jpeg .gif .webp, contenu vérifié (le contenu doit correspondre à l'extension). Nom nettoyé (pas de chemin, pas de fichier caché, « (2) » si le nom existe).
+- Mise en route : l'étape 2 « Donner son contexte à l'agent » est active (bouton → Réglages › Contexte et mémoire) et se coche quand la rubrique « Sa mission » de CONTEXTE.md n'est plus « À compléter » (fonction `missionRemplie` de `app/espace.js`) ; le voyant « Contexte de l'agent » suit la même règle. Les étapes 3 et 4 sont « Bientôt disponible ». À l'étape qui installe chaque fonction : dans `etatSysteme()` de `app/server.js`, passer `disponible` à `true` et brancher `fait` (et le voyant correspondant).
 
 ## Cache du navigateur
 
@@ -139,3 +157,14 @@ Commandes (en root) :
 - `index.html`, `app.js`, `bureau.css` : fenêtre « Connecter Claude » en deux méthodes (sans Terminal par défaut, « J'ai déjà une clé » en secours).
 - Vérifié : le lien commence par https://claude.com/cai/oauth/authorize et contient code_challenge ; le processus tourne en tant que agentforma sous le service (ProtectSystem=strict, PrivateTmp) ; un faux code donne « Le code n'a pas été accepté : recommencez. », rien n'est enregistré et le processus est arrêté ; une deuxième demande de lien remplace la première (un seul processus) ; une fausse clé collée est toujours refusée ; rien de secret dans les journaux ; cache : en-têtes présents, 304 avec If-None-Match, 200 après modification ; captures ordinateur et mobile. Compte de test supprimé.
 - RESTE À FAIRE : une vraie connexion avec un compte Claude (Pro ou Max), puis les vérifications de l'étape 5 (vraie réponse, mémoire, refus de lire data/comptes.json).
+
+### Étape 5 — vérifications avec Claude connecté (09/11/2026)
+- Compte de test créé puis supprimé. « Bonjour, présente-toi en une phrase » : réponse en direct (10 morceaux, premier au bout de 2,6 s), enregistrée dans l'historique. Deuxième message : il cite la première question (--resume OK). Lire data/comptes.json : refusé (l'agent n'essaie même pas ; la règle deny est en place). Aucun bug.
+
+### Étape 6 — identité, contexte, mémoire, fichiers (09/11/2026)
+- Sauvegarde : `sauvegardes/avant-etape6-20261109-1021.tar.gz` (app, agent, PROJET.md).
+- `agent/` : CLAUDE.md (fiche de poste complète), CONTEXTE.md (7 rubriques « À compléter »), memoire.md (vide, 4 rubriques), regles.md, dossiers documents/ et work/ ; deny Edit sur CONTEXTE.md et regles.md.
+- `app/espace.js` (nouveau), `app/server.js` (routes identité, contexte, documents, fichiers, téléchargement ; voyant et étape 2 de la mise en route), `app/agent.js` (nom de l'agent modifiable, fichiers produits dans work/, fichier joint, « Remplir à partir d'un site »).
+- Interface : Réglages › Identité (en tête), Contexte et mémoire (sous-onglets Contexte, Mémoire, Règles, Fiche, Documents ; lecture mise en forme, « Modifier » pour un admin), Fichiers de l'agent (aperçu, téléchargement, suppression admin ; accessible depuis l'en-tête sur ordinateur et le menu ☰ sur mobile) ; trombone et glisser-déposer dans la discussion ; cartes de fichier dans les bulles ; icône d'onglet = logo ou carré avec l'initiale ; sur mobile, le bureau 3D se replie sur l'onglet Réglages.
+- Vérifié (compte de test admin + compte membre, supprimés) : identité changée par l'API (/api/marque, /api/logo, SVG avec CSP sans script), l'agent répond « Je m'appelle Hector », scène recréée sans recharger ; valeurs d'origine remises, logo retiré ; document ORION-7 trouvé et cité ; « Je retiens » + ligne datée dans memoire.md, retrouvée dans une nouvelle discussion, puis retirée ; modifier regles.md refusé ; fichier joint lu, work/essai.md créé, listé et téléchargé, puis supprimés ; « Quels sont nos tarifs ? » → « Je n'ai pas cette information » + proposition de déposer un document ; « Remplir à partir d'un site » testé (48 s, rien enregistré) ; refus : faux PNG, PDF déguisé, SVG en document, chemin ../, lien symbolique, dossier hors liste, membre (403 sur toute modification) ; mission remplie → étape 2 cochée + voyant vert, puis remise à « À compléter ». Captures ordinateur et mobile, aucune erreur de console.
+- CONTEXTE.md laissé avec ses rubriques « À compléter ».

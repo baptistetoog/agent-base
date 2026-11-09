@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8">
-  <link rel="icon" href="data:,">
+  <link rel="icon" id="favicon" href="data:,">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#FFFFFF">
   <title>Bureau de l'agent</title>
@@ -26,16 +26,24 @@
     <symbol id="i-menu" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M4 7h16M4 12h16M4 17h16"/></symbol>
     <symbol id="i-sortie" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M14 4h3.5A2.5 2.5 0 0 1 20 6.5v11a2.5 2.5 0 0 1-2.5 2.5H14M10 16l-4-4 4-4M6 12h10"/></symbol>
     <symbol id="i-externe" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M14 5h5v5M19 5l-8 8M17 14v4a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 5 18V8.5A1.5 1.5 0 0 1 6.5 7H10"/></symbol>
+    <symbol id="i-trombone" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M20 11.5l-7.8 7.8a5 5 0 0 1-7.1-7.1l8.3-8.3a3.3 3.3 0 0 1 4.7 4.7l-8.3 8.3a1.7 1.7 0 0 1-2.4-2.4l7.6-7.6"/></symbol>
+    <symbol id="i-dossier" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" d="M3.5 7.5A2.5 2.5 0 0 1 6 5h3.6l2 2.2H18a2.5 2.5 0 0 1 2.5 2.5v7.8A2.5 2.5 0 0 1 18 20H6a2.5 2.5 0 0 1-2.5-2.5z"/></symbol>
+    <symbol id="i-telecharger" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12 4v11M7 10.5l5 5 5-5M5 19.5h14"/></symbol>
+    <symbol id="i-poubelle" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M4.5 7h15M9.5 7V5.2c0-.7.5-1.2 1.2-1.2h2.6c.7 0 1.2.5 1.2 1.2V7M6.5 7l.8 11.3A2 2 0 0 0 9.3 20h5.4a2 2 0 0 0 2-1.7L17.5 7"/></symbol>
+    <symbol id="i-oeil" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/></g></symbol>
+    <symbol id="i-globe" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.3 2.4 3.4 5.2 3.4 8.5s-1.1 6.1-3.4 8.5c-2.3-2.4-3.4-5.2-3.4-8.5s1.1-6.1 3.4-8.5z"/></g></symbol>
     <symbol id="i-cle" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"/><path d="M11 12l8-8M16 7l2 2M14 9l2 2"/></g></symbol>
   </svg>
 
   <header class="entete">
     <div class="marque">
       <div class="marque-carre" data-initiale aria-hidden="true"></div>
+      <img class="marque-logo" data-logo alt="" hidden>
       <div class="marque-nom" data-nom-outil></div>
     </div>
     <button class="pastille" id="pastilleClaude" type="button" disabled>Claude…</button>
     <div class="entete-espace"></div>
+    <button class="bouton-fantome bouton-petit entete-fichiers" type="button" data-aller="fichiers"><svg class="icone"><use href="#i-dossier"/></svg>Fichiers de l'agent</button>
     <span class="entete-prenom" id="entetePrenom"></span>
     <button class="bouton-secondaire bouton-petit entete-deconnexion" type="button" data-deconnexion>Se déconnecter</button>
     <button class="bouton-icone menu-bouton" id="boutonMenu" type="button" aria-label="Menu" aria-haspopup="true" aria-expanded="false">
@@ -46,6 +54,7 @@
         <strong id="menuNom"></strong>
         <span id="menuEmail"></span>
       </div>
+      <button class="menu-item" type="button" role="menuitem" data-aller="fichiers"><svg class="icone"><use href="#i-dossier"/></svg>Fichiers de l'agent</button>
       <button class="menu-item" type="button" role="menuitem" data-aller="reglages"><svg class="icone"><use href="#i-reglages"/></svg>Réglages</button>
       <button class="menu-item" type="button" role="menuitem" data-deconnexion><svg class="icone"><use href="#i-sortie"/></svg>Se déconnecter</button>
     </div>
@@ -100,7 +109,15 @@
         </div>
 
         <form class="saisie" id="saisie" autocomplete="off">
+          <div class="piece-jointe" id="pieceJointe" hidden>
+            <span class="piece-icone" aria-hidden="true">📄</span>
+            <span class="piece-nom" id="pieceNom"></span>
+            <span class="piece-taille" id="pieceTaille"></span>
+            <button class="bouton-icone piece-retirer" id="pieceRetirer" type="button" aria-label="Retirer le fichier joint"><svg class="icone"><use href="#i-fermer"/></svg></button>
+          </div>
           <div class="saisie-boite">
+            <button class="bouton-icone bouton-joindre" id="boutonJoindre" type="button" aria-label="Joindre un fichier" title="Joindre un fichier (20 Mo max. : texte, Markdown, PDF, CSV, image)"><svg class="icone"><use href="#i-trombone"/></svg></button>
+            <input type="file" id="champJoindre" accept=".txt,.md,.markdown,.csv,.pdf,.png,.jpg,.jpeg,.gif,.webp" hidden>
             <label class="visuellement-cache" for="zoneMessage">Votre message</label>
             <textarea class="saisie-zone" id="zoneMessage" rows="1" placeholder="Écrivez votre message…" enterkeyhint="send"></textarea>
             <button class="bouton-envoyer" id="boutonEnvoyer" type="submit" aria-label="Envoyer">
@@ -121,6 +138,47 @@
 
       <!-- Onglet Réglages -->
       <div class="vue vue-reglages" id="vueReglages" role="tabpanel" aria-labelledby="onglet-reglages" hidden>
+        <section class="carte reglage" id="sectionIdentite" aria-labelledby="titreIdentite">
+          <h2 class="carte-titre" id="titreIdentite">Identité</h2>
+          <p class="carte-aide">Le nom, le logo et l'agent de votre espace.</p>
+          <form class="identite" id="formIdentite" autocomplete="off" novalidate>
+            <div class="identite-logo">
+              <div class="logo-apercu" id="logoApercu" aria-hidden="true">
+                <img id="logoImage" alt="" hidden>
+                <span id="logoInitiale"></span>
+              </div>
+              <div class="logo-actions">
+                <span class="champ-libelle">Logo</span>
+                <div class="reglage-actions admin-seul">
+                  <button class="bouton-secondaire bouton-petit" type="button" id="boutonLogo">Envoyer un logo</button>
+                  <button class="bouton-fantome bouton-petit bouton-danger" type="button" id="boutonRetirerLogo" hidden>Retirer le logo</button>
+                </div>
+                <input type="file" id="champLogo" accept="image/png,image/jpeg,image/svg+xml,.svg" hidden>
+                <span class="champ-aide">PNG, JPEG ou SVG, 2 Mo au maximum. Carré de préférence.</span>
+              </div>
+            </div>
+            <div class="identite-champs">
+              <div>
+                <label class="champ-libelle" for="champNomOutil">Nom de l'espace</label>
+                <input class="champ" id="champNomOutil" maxlength="40" required>
+              </div>
+              <div>
+                <label class="champ-libelle" for="champNomAgent">Nom de l'agent</label>
+                <input class="champ" id="champNomAgent" maxlength="30" required>
+              </div>
+              <div class="champ-badge">
+                <label class="champ-libelle" for="champBadge">Badge</label>
+                <input class="champ" id="champBadge" maxlength="4" autocapitalize="characters" spellcheck="false">
+              </div>
+            </div>
+            <p class="message-erreur guide-erreur" id="erreurIdentite" role="alert"></p>
+            <div class="reglage-actions admin-seul">
+              <button class="bouton" type="submit" id="boutonIdentite">Enregistrer</button>
+            </div>
+            <p class="reglage-note membre-seul" hidden>Seul un admin peut modifier l'identité de l'espace.</p>
+          </form>
+        </section>
+
         <section class="carte reglage" aria-labelledby="titreReglageClaude">
           <h2 class="carte-titre" id="titreReglageClaude">Claude</h2>
           <p class="carte-aide">Le cerveau de l'agent. Il utilise votre abonnement Claude (Pro ou Max).</p>
@@ -133,6 +191,57 @@
             <button class="bouton-secondaire bouton-danger" type="button" id="reglageDeconnecter" hidden>Déconnecter</button>
           </div>
           <p class="reglage-note" id="reglageNonAdmin" hidden>Seul un admin peut connecter ou changer la clé Claude.</p>
+        </section>
+
+        <section class="carte reglage" id="sectionContexte" aria-labelledby="titreContexte">
+          <h2 class="carte-titre" id="titreContexte">Contexte et mémoire</h2>
+          <p class="carte-aide">Ce que l'agent sait de vous, ce qu'il a retenu et les règles qu'il suit. Il relit tout à chaque message.</p>
+          <div class="onglets sous-onglets" role="tablist" aria-label="Contexte et mémoire" id="sousOnglets">
+            <button class="onglet" type="button" role="tab" data-sous="contexte" aria-selected="true">Contexte</button>
+            <button class="onglet" type="button" role="tab" data-sous="memoire" aria-selected="false">Mémoire</button>
+            <button class="onglet" type="button" role="tab" data-sous="regles" aria-selected="false">Règles</button>
+            <button class="onglet" type="button" role="tab" data-sous="fiche" aria-selected="false">Fiche</button>
+            <button class="onglet" type="button" role="tab" data-sous="documents" aria-selected="false"><span class="long">Documents</span><span class="court">Docs</span></button>
+          </div>
+
+          <div class="sous-vue" id="vueTexte">
+            <div class="texte-barre">
+              <span class="texte-fichier"><code id="texteFichier">CONTEXTE.md</code><span id="texteModifie"></span></span>
+              <span class="texte-actions">
+                <button class="bouton-secondaire bouton-petit admin-seul" type="button" id="boutonRemplir" hidden><svg class="icone"><use href="#i-globe"/></svg>Remplir à partir d'un site</button>
+                <button class="bouton-secondaire bouton-petit admin-seul" type="button" id="boutonModifier">Modifier</button>
+              </span>
+            </div>
+            <p class="texte-explication" id="texteExplication"></p>
+            <div class="texte-lecture md" id="texteLecture"></div>
+            <div class="texte-edition" id="texteEdition" hidden>
+              <label class="visuellement-cache" for="zoneTexte">Contenu du fichier</label>
+              <textarea class="champ zone-texte" id="zoneTexte" spellcheck="true"></textarea>
+              <div class="reglage-actions texte-boutons">
+                <button class="bouton-secondaire" type="button" id="boutonAnnulerTexte">Annuler</button>
+                <button class="bouton" type="button" id="boutonEnregistrerTexte">Enregistrer</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="sous-vue" id="vueDocuments" hidden>
+            <p class="texte-explication">Les documents que l'agent consulte (dossier <code>documents/</code>) : il cite celui qu'il utilise.</p>
+            <div class="depot admin-seul" id="depot">
+              <svg class="icone depot-icone" aria-hidden="true"><use href="#i-trombone"/></svg>
+              <p class="depot-texte"><strong>Glissez vos fichiers ici</strong><span> ou </span></p>
+              <button class="bouton-secondaire bouton-petit" type="button" id="boutonDeposer">Choisir des fichiers</button>
+              <input type="file" id="champDeposer" multiple accept=".txt,.md,.markdown,.csv,.pdf,.png,.jpg,.jpeg,.gif,.webp" hidden>
+              <p class="champ-aide">Texte, Markdown, PDF, CSV ou image · 20 Mo au maximum par fichier</p>
+            </div>
+            <ul class="liste-fichiers" id="listeDocuments"></ul>
+          </div>
+          <p class="reglage-note membre-seul" hidden>Vous pouvez tout lire ; seul un admin peut modifier.</p>
+        </section>
+
+        <section class="carte reglage" id="sectionFichiers" aria-labelledby="titreFichiers">
+          <h2 class="carte-titre" id="titreFichiers">Fichiers de l'agent</h2>
+          <p class="carte-aide">Tout ce que l'agent a produit (dossier <code>work/</code>).</p>
+          <ul class="liste-fichiers" id="listeFichiers"></ul>
         </section>
 
         <section class="carte reglage" aria-labelledby="titreSysteme">
@@ -246,6 +355,54 @@
         <div class="claude-succes-icone">✅</div>
         <p class="claude-succes-titre">Claude est connecté</p>
         <p class="carte-aide">Votre agent peut maintenant répondre.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Fenêtre « Remplir à partir d'un site » -->
+  <div class="fenetre-fond" id="fenetreRemplir" hidden>
+    <div class="fenetre fenetre-large" role="dialog" aria-modal="true" aria-labelledby="titreRemplir">
+      <div class="fenetre-entete">
+        <h2 class="fenetre-titre" id="titreRemplir">Remplir à partir d'un site</h2>
+        <button class="bouton-icone" type="button" data-fermer aria-label="Fermer"><svg class="icone"><use href="#i-fermer"/></svg></button>
+      </div>
+      <div id="remplirDepart">
+        <p class="carte-aide">L'agent parcourt les pages utiles du site (accueil, offres, à propos, contact, FAQ, mentions légales) et vous propose une fiche. Vous la relisez avant de l'enregistrer. Ce qu'il ne trouve pas reste « À compléter ».</p>
+        <form id="formRemplir" novalidate>
+          <label class="champ-libelle" for="champSite">Adresse du site</label>
+          <input class="champ" id="champSite" type="url" inputmode="url" placeholder="https://www.exemple.fr" autocomplete="url" required>
+          <p class="message-erreur guide-erreur" id="erreurRemplir" role="alert"></p>
+          <button class="bouton bouton-large" type="submit" id="boutonLancerRemplir">Lancer</button>
+        </form>
+      </div>
+      <div id="remplirAttente" class="remplir-attente" hidden>
+        <span class="points"><i></i><i></i><i></i></span>
+        <p class="claude-succes-titre">L'agent lit le site…</p>
+        <p class="carte-aide" id="remplirDuree">Une à trois minutes. Vous pouvez fermer cette fenêtre : la proposition vous attendra.</p>
+        <button class="bouton-secondaire bouton-petit" type="button" id="boutonAnnulerRemplir">Annuler</button>
+      </div>
+      <div id="remplirResultat" hidden>
+        <p class="carte-aide">Relisez et corrigez la proposition, puis enregistrez-la. Rien n'est enregistré tant que vous n'avez pas cliqué.</p>
+        <label class="visuellement-cache" for="zoneProposition">Proposition de CONTEXTE.md</label>
+        <textarea class="champ zone-texte" id="zoneProposition"></textarea>
+        <div class="fenetre-actions">
+          <button class="bouton-secondaire" type="button" data-fermer>Annuler</button>
+          <button class="bouton" type="button" id="boutonGarderProposition">Enregistrer dans CONTEXTE.md</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Fenêtre d'aperçu d'un fichier -->
+  <div class="fenetre-fond" id="fenetreApercu" hidden>
+    <div class="fenetre fenetre-large" role="dialog" aria-modal="true" aria-labelledby="titreApercu">
+      <div class="fenetre-entete">
+        <h2 class="fenetre-titre apercu-titre" id="titreApercu"></h2>
+        <button class="bouton-icone" type="button" data-fermer aria-label="Fermer"><svg class="icone"><use href="#i-fermer"/></svg></button>
+      </div>
+      <div class="apercu-contenu md" id="apercuContenu"></div>
+      <div class="fenetre-actions">
+        <a class="bouton" id="apercuTelecharger" href="#"><svg class="icone"><use href="#i-telecharger"/></svg>Télécharger</a>
       </div>
     </div>
   </div>
