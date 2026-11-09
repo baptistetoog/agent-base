@@ -2,24 +2,231 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Accueil</title>
+  <link rel="icon" href="data:,">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#FFFFFF">
+  <title>Bureau de l'agent</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
-  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/design.css">
+  <link rel="stylesheet" href="/bureau.css">
+  <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/" } }</script>
+  <script type="module" src="/app.js"></script>
 </head>
-<body>
+<body class="page-bureau">
+  <svg class="visuellement-cache" aria-hidden="true">
+    <symbol id="i-discussion" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v8a2.5 2.5 0 0 1-2.5 2.5H10l-4.5 4v-4h0A1.5 1.5 0 0 1 4 14.5z"/></symbol>
+    <symbol id="i-reglages" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2.2"/><circle cx="10" cy="17" r="2.2"/></g></symbol>
+    <symbol id="i-envoyer" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12 19V5M6 11l6-6 6 6"/></symbol>
+    <symbol id="i-arreter" viewBox="0 0 24 24"><rect x="6.5" y="6.5" width="11" height="11" rx="2.5" fill="currentColor"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-fermer" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M6 6l12 12M18 6L6 18"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M6 9l6 6 6-6"/></symbol>
+    <symbol id="i-menu" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M4 7h16M4 12h16M4 17h16"/></symbol>
+    <symbol id="i-sortie" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M14 4h3.5A2.5 2.5 0 0 1 20 6.5v11a2.5 2.5 0 0 1-2.5 2.5H14M10 16l-4-4 4-4M6 12h10"/></symbol>
+    <symbol id="i-cle" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"/><path d="M11 12l8-8M16 7l2 2M14 9l2 2"/></g></symbol>
+  </svg>
+
   <header class="entete">
     <div class="marque">
-      <div class="marque-carre" data-initiale></div>
+      <div class="marque-carre" data-initiale aria-hidden="true"></div>
       <div class="marque-nom" data-nom-outil></div>
     </div>
-    <button class="bouton-discret" id="deconnexion" type="button">Se déconnecter</button>
+    <button class="pastille" id="pastilleClaude" type="button" disabled>Claude…</button>
+    <div class="entete-espace"></div>
+    <span class="entete-prenom" id="entetePrenom"></span>
+    <button class="bouton-secondaire bouton-petit entete-deconnexion" type="button" data-deconnexion>Se déconnecter</button>
+    <button class="bouton-icone menu-bouton" id="boutonMenu" type="button" aria-label="Menu" aria-haspopup="true" aria-expanded="false">
+      <svg class="icone"><use href="#i-menu"/></svg>
+    </button>
+    <div class="menu" id="menu" role="menu" hidden>
+      <div class="menu-qui">
+        <strong id="menuNom"></strong>
+        <span id="menuEmail"></span>
+      </div>
+      <button class="menu-item" type="button" role="menuitem" data-aller="reglages"><svg class="icone"><use href="#i-reglages"/></svg>Réglages</button>
+      <button class="menu-item" type="button" role="menuitem" data-deconnexion><svg class="icone"><use href="#i-sortie"/></svg>Se déconnecter</button>
+    </div>
   </header>
-  <main class="contenu">
-    <p id="bonjour"></p>
+
+  <main class="espace">
+    <section class="scene" id="scene" aria-label="Le bureau de l'agent">
+      <div class="scene-3d" id="scene3d"></div>
+      <div class="etiquette" id="etiquette" aria-live="polite">
+        <span class="etiquette-tete" data-tete="26"></span>
+        <span class="etiquette-textes">
+          <strong class="etiquette-nom" data-nom-agent></strong>
+          <span class="etiquette-activite" id="etiquetteActivite">Au repos</span>
+        </span>
+      </div>
+      <button class="bouton-icone scene-replier" id="replierScene" type="button" aria-expanded="true" aria-controls="scene3d" aria-label="Replier le bureau">
+        <svg class="icone"><use href="#i-chevron"/></svg>
+      </button>
+    </section>
+
+    <section class="panneau">
+      <div class="panneau-haut">
+        <div class="onglets" role="tablist" aria-label="Sections">
+          <button class="onglet" type="button" role="tab" id="onglet-discussion" data-onglet="discussion" aria-selected="true" aria-controls="vueDiscussion">
+            <svg class="icone"><use href="#i-discussion"/></svg>Discussion
+          </button>
+          <button class="onglet" type="button" role="tab" id="onglet-reglages" data-onglet="reglages" aria-selected="false" aria-controls="vueReglages">
+            <svg class="icone"><use href="#i-reglages"/></svg>Réglages
+          </button>
+        </div>
+      </div>
+
+      <!-- Onglet Discussion -->
+      <div class="vue vue-discussion" id="vueDiscussion" role="tabpanel" aria-labelledby="onglet-discussion">
+        <section class="mise-en-route carte" id="miseEnRoute" hidden aria-label="Mise en route">
+          <button class="mer-entete" id="merEntete" type="button" aria-expanded="true" aria-controls="merEtapes">
+            <span class="mer-titre">Mise en route</span>
+            <span class="mer-progres" id="merProgres">0/4</span>
+            <span class="mer-barre"><span class="mer-barre-plein" id="merBarre"></span></span>
+            <svg class="icone mer-chevron"><use href="#i-chevron"/></svg>
+          </button>
+          <ol class="mer-etapes" id="merEtapes"></ol>
+          <div class="mer-action" id="merAction" hidden></div>
+        </section>
+
+        <div class="fil" id="fil" aria-live="polite" aria-label="Messages">
+          <div class="fil-chargement">
+            <div class="squelette sq-1"></div>
+            <div class="squelette sq-2"></div>
+            <div class="squelette sq-3"></div>
+          </div>
+        </div>
+
+        <form class="saisie" id="saisie" autocomplete="off">
+          <div class="saisie-boite">
+            <label class="visuellement-cache" for="zoneMessage">Votre message</label>
+            <textarea class="saisie-zone" id="zoneMessage" rows="1" placeholder="Écrivez votre message…" enterkeyhint="send"></textarea>
+            <button class="bouton-envoyer" id="boutonEnvoyer" type="submit" aria-label="Envoyer">
+              <svg class="icone"><use href="#i-envoyer"/></svg>
+            </button>
+          </div>
+          <div class="saisie-actions">
+            <button class="bouton-fantome bouton-petit" id="boutonNouvelle" type="button">
+              <svg class="icone"><use href="#i-plus"/></svg>Nouvelle discussion
+            </button>
+            <span class="saisie-aide">Entrée pour envoyer · Maj+Entrée pour aller à la ligne</span>
+            <button class="bouton-secondaire bouton-petit bouton-danger" id="boutonArreter" type="button" hidden>
+              <svg class="icone"><use href="#i-arreter"/></svg>Arrêter
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Onglet Réglages -->
+      <div class="vue vue-reglages" id="vueReglages" role="tabpanel" aria-labelledby="onglet-reglages" hidden>
+        <section class="carte reglage" aria-labelledby="titreReglageClaude">
+          <h2 class="carte-titre" id="titreReglageClaude">Claude</h2>
+          <p class="carte-aide">Le cerveau de l'agent. Il utilise votre abonnement Claude (Pro ou Max).</p>
+          <div class="reglage-ligne">
+            <span class="pastille" id="reglageClaudeEtat">…</span>
+            <span class="reglage-detail" id="reglageClaudeDepuis"></span>
+          </div>
+          <div class="reglage-actions" id="reglageClaudeActions">
+            <button class="bouton" type="button" id="reglageConnecter"><svg class="icone"><use href="#i-cle"/></svg><span>Connecter Claude</span></button>
+            <button class="bouton-secondaire bouton-danger" type="button" id="reglageDeconnecter" hidden>Déconnecter</button>
+          </div>
+          <p class="reglage-note" id="reglageNonAdmin" hidden>Seul un admin peut connecter ou changer la clé Claude.</p>
+        </section>
+
+        <section class="carte reglage" aria-labelledby="titreSysteme">
+          <h2 class="carte-titre" id="titreSysteme">État du système</h2>
+          <p class="carte-aide">Les voyants de votre agent.</p>
+          <ul class="voyants" id="voyants"></ul>
+        </section>
+
+        <section class="carte reglage" aria-labelledby="titreCompte">
+          <h2 class="carte-titre" id="titreCompte">Mon compte</h2>
+          <dl class="compte">
+            <dt>Nom</dt><dd id="compteNom"></dd>
+            <dt>E-mail</dt><dd id="compteEmail"></dd>
+            <dt>Rôle</dt><dd id="compteRole"></dd>
+          </dl>
+          <div class="reglage-actions">
+            <button class="bouton-secondaire" type="button" data-deconnexion><svg class="icone"><use href="#i-sortie"/></svg>Se déconnecter</button>
+          </div>
+        </section>
+      </div>
+    </section>
   </main>
-  <script src="/accueil.js"></script>
+
+  <nav class="barre-onglets" aria-label="Sections">
+    <button class="barre-onglet" type="button" data-onglet="discussion" aria-selected="true">
+      <svg class="icone"><use href="#i-discussion"/></svg><span>Discussion</span>
+    </button>
+    <button class="barre-onglet" type="button" data-onglet="reglages" aria-selected="false">
+      <svg class="icone"><use href="#i-reglages"/></svg><span>Réglages</span>
+    </button>
+  </nav>
+
+  <!-- Fenêtre « Connecter Claude » -->
+  <div class="fenetre-fond" id="fenetreClaude" hidden>
+    <div class="fenetre" role="dialog" aria-modal="true" aria-labelledby="titreFenetreClaude">
+      <div class="fenetre-entete">
+        <h2 class="fenetre-titre" id="titreFenetreClaude">Connecter Claude</h2>
+        <button class="bouton-icone" type="button" data-fermer aria-label="Fermer"><svg class="icone"><use href="#i-fermer"/></svg></button>
+      </div>
+      <p class="carte-aide">L'agent travaille avec votre abonnement Claude. Trois étapes, environ deux minutes.</p>
+
+      <div id="claudeGuide">
+        <ol class="guide">
+          <li class="guide-etape">
+            <span class="guide-num">1</span>
+            <div class="guide-corps">
+              <p>Sur votre ordinateur, ouvrez le Terminal et tapez cette commande :</p>
+              <div class="commande">
+                <code>claude setup-token</code>
+                <button class="bouton-secondaire bouton-petit" type="button" id="copierCommande">Copier</button>
+              </div>
+            </div>
+          </li>
+          <li class="guide-etape">
+            <span class="guide-num">2</span>
+            <div class="guide-corps">
+              <p>Votre navigateur s'ouvre : connectez-vous à votre compte Claude (Pro ou Max) et cliquez sur <strong>Autoriser</strong>. Copiez le code affiché et collez-le dans le Terminal.</p>
+            </div>
+          </li>
+          <li class="guide-etape">
+            <span class="guide-num">3</span>
+            <div class="guide-corps">
+              <p>Le Terminal affiche une clé qui commence par <code>sk-ant-oat01-</code>. Copiez-la et collez-la ici :</p>
+              <form id="formClaude" autocomplete="off" novalidate>
+                <label class="visuellement-cache" for="champCle">Clé Claude</label>
+                <input class="champ" id="champCle" name="cle-claude" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="sk-ant-oat01-…" required>
+                <p class="rassurant">🔒 La clé est rangée dans le coffre du serveur. Elle ne sera plus jamais affichée. Ne la collez jamais dans une discussion.</p>
+                <p class="message-erreur guide-erreur" id="erreurCle" role="alert"></p>
+                <button class="bouton bouton-large" type="submit" id="boutonConnecter">Connecter</button>
+              </form>
+            </div>
+          </li>
+        </ol>
+      </div>
+
+      <div class="claude-succes" id="claudeSucces" hidden>
+        <div class="claude-succes-icone">✅</div>
+        <p class="claude-succes-titre">Claude est connecté</p>
+        <p class="carte-aide">Votre agent peut maintenant répondre.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Fenêtre de confirmation -->
+  <div class="fenetre-fond" id="fenetreConfirmer" hidden>
+    <div class="fenetre fenetre-petite" role="alertdialog" aria-modal="true" aria-labelledby="confirmerTitre" aria-describedby="confirmerTexte">
+      <h2 class="fenetre-titre" id="confirmerTitre"></h2>
+      <p class="carte-aide confirmer-texte" id="confirmerTexte"></p>
+      <div class="fenetre-actions">
+        <button class="bouton-secondaire" type="button" data-fermer>Annuler</button>
+        <button class="bouton bouton-plein-danger" type="button" id="confirmerOui">Confirmer</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toasts" id="toasts" aria-live="polite"></div>
 </body>
 </html>

@@ -1,0 +1,220 @@
+/* =============================================================================
+   design.css — le système de design de l'outil (toutes les pages).
+   Pour habiller l'outil aux couleurs d'un client : modifier SEULEMENT le bloc
+   « CHARTE » ci-dessous. Tout le reste en découle.
+   ============================================================================= */
+
+/* ===== CHARTE (le seul bloc à modifier pour changer l'apparence) ===== */
+:root {
+  --fond: #F5F6F8;          /* fond de page */
+  --surface: #FFFFFF;       /* cartes, panneaux */
+  --texte: #1F2430;         /* texte principal */
+  --texte-2: #5D6576;       /* texte secondaire (adouci) */
+  --accent: #3B5BDB;        /* action principale (texte blanc lisible dessus : contraste 5,6:1) */
+  --sur-accent: #FFFFFF;    /* texte posé sur l'accent */
+  --accent-pale: #E8EDFC;   /* accent très éclairci : mes bulles de discussion */
+  --accent-2: #0CA678;      /* accent secondaire */
+  --vert: #2E9E6A;
+  --rouge: #D9443B;
+  --orange: #E8590C;
+  --bordure: #E1E4EA;       /* un peu plus foncé que le fond */
+  --police: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+/* ===== fin de la charte ===== */
+
+:root {
+  --rayon: 16px;
+  --rayon-petit: 10px;
+  --ombre: 0 1px 2px rgba(31, 36, 48, .05), 0 6px 20px rgba(31, 36, 48, .07);
+  --ombre-forte: 0 12px 40px rgba(31, 36, 48, .18);
+  --transition: 150ms ease;
+  --anneau: 0 0 0 3px color-mix(in srgb, var(--accent) 28%, transparent);
+  --vert-pale: color-mix(in srgb, var(--vert) 12%, var(--surface));
+  --orange-pale: color-mix(in srgb, var(--orange) 12%, var(--surface));
+  --rouge-pale: color-mix(in srgb, var(--rouge) 10%, var(--surface));
+  --gris-pale: color-mix(in srgb, var(--texte) 6%, var(--surface));
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  font-family: var(--police);
+  font-size: 15px;
+  background: var(--fond);
+  color: var(--texte);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+[hidden] { display: none !important; }
+a { color: var(--accent); }
+button { font: inherit; color: inherit; }
+::selection { background: var(--accent-pale); }
+:focus-visible { outline: none; box-shadow: var(--anneau); }
+.visuellement-cache {
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap;
+}
+
+/* ---------- Marque ---------- */
+.marque { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.marque-carre {
+  flex: none; width: 34px; height: 34px; border-radius: 10px;
+  background: var(--accent); color: var(--sur-accent);
+  display: grid; place-items: center; font-weight: 700; font-size: 17px;
+}
+.marque-nom { font-weight: 600; font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---------- Carte ---------- */
+.carte {
+  background: var(--surface);
+  border-radius: var(--rayon);
+  box-shadow: var(--ombre);
+  padding: 20px;
+}
+.carte-titre { margin: 0 0 4px; font-size: 16px; font-weight: 600; }
+.carte-aide { margin: 0 0 14px; font-size: 14px; color: var(--texte-2); }
+
+/* ---------- Boutons ---------- */
+.bouton, .bouton-secondaire, .bouton-fantome {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  font-weight: 600; font-size: 14px; line-height: 1;
+  padding: 11px 18px; min-height: 40px;
+  border-radius: 999px; cursor: pointer; white-space: nowrap;
+  transition: background var(--transition), border-color var(--transition), color var(--transition), box-shadow var(--transition), transform var(--transition), opacity var(--transition);
+  text-decoration: none;
+}
+.bouton { background: var(--accent); color: var(--sur-accent); border: 1px solid var(--accent); }
+.bouton:hover { background: color-mix(in srgb, var(--accent) 88%, #000); }
+.bouton:active, .bouton-secondaire:active { transform: translateY(1px); }
+.bouton-secondaire { background: var(--surface); color: var(--texte); border: 1px solid var(--bordure); }
+.bouton-secondaire:hover { border-color: color-mix(in srgb, var(--texte) 25%, var(--bordure)); background: var(--fond); }
+.bouton-fantome { background: transparent; border: 1px solid transparent; color: var(--texte-2); padding: 8px 12px; min-height: 34px; }
+.bouton-fantome:hover { background: var(--gris-pale); color: var(--texte); }
+.bouton-danger { color: var(--rouge); }
+.bouton-danger:hover { border-color: var(--rouge); background: var(--rouge-pale); }
+.bouton-plein-danger { background: var(--rouge); border-color: var(--rouge); color: #fff; }
+.bouton-plein-danger:hover { background: color-mix(in srgb, var(--rouge) 88%, #000); }
+.bouton-petit { padding: 7px 12px; min-height: 32px; font-size: 13px; }
+.bouton-large { width: 100%; }
+.bouton:disabled, .bouton-secondaire:disabled, .bouton-fantome:disabled { opacity: .55; cursor: default; transform: none; }
+.bouton-icone {
+  display: inline-grid; place-items: center; width: 38px; height: 38px; flex: none;
+  border-radius: 999px; border: 1px solid transparent; background: transparent; cursor: pointer;
+  color: var(--texte-2); transition: background var(--transition), color var(--transition);
+}
+.bouton-icone:hover { background: var(--gris-pale); color: var(--texte); }
+.icone { width: 20px; height: 20px; flex: none; }
+
+/* ---------- Pastilles d'état ---------- */
+.pastille {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 5px 11px 5px 9px; border-radius: 999px;
+  font-size: 13px; font-weight: 500; line-height: 1.2; white-space: nowrap;
+  background: var(--gris-pale); color: var(--texte); border: 1px solid transparent;
+  transition: background var(--transition), border-color var(--transition);
+}
+.pastille::before {
+  content: ""; width: 8px; height: 8px; border-radius: 50%; flex: none;
+  background: color-mix(in srgb, var(--texte) 35%, transparent);
+}
+.pastille.ok { background: var(--vert-pale); }
+.pastille.ok::before { background: var(--vert); }
+.pastille.attention { background: var(--orange-pale); }
+.pastille.attention::before { background: var(--orange); }
+.pastille.erreur { background: var(--rouge-pale); }
+.pastille.erreur::before { background: var(--rouge); }
+.pastille.travail::before { background: var(--accent); animation: battement 1.2s ease-in-out infinite; }
+button.pastille { cursor: pointer; font: inherit; font-size: 13px; font-weight: 500; }
+button.pastille.attention:hover { border-color: var(--orange); }
+@keyframes battement { 50% { opacity: .35; transform: scale(.8); } }
+
+/* ---------- Champs ---------- */
+.champ-libelle { display: block; font-size: 14px; font-weight: 500; margin: 0 0 6px; }
+.champ, input.champ, textarea.champ {
+  width: 100%; font: inherit; font-size: 16px; color: var(--texte);
+  padding: 11px 14px; border: 1px solid var(--bordure); border-radius: 12px;
+  background: var(--surface);
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+.champ:focus { outline: none; border-color: var(--accent); box-shadow: var(--anneau); }
+.champ::placeholder { color: color-mix(in srgb, var(--texte-2) 75%, transparent); }
+
+/* ---------- Onglets ---------- */
+.onglets { display: flex; gap: 4px; padding: 4px; background: var(--gris-pale); border-radius: 999px; }
+.onglet {
+  flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  border: 0; background: transparent; padding: 8px 14px; border-radius: 999px;
+  font-size: 14px; font-weight: 500; color: var(--texte-2); cursor: pointer;
+  transition: background var(--transition), color var(--transition), box-shadow var(--transition);
+}
+.onglet:hover { color: var(--texte); }
+.onglet[aria-selected="true"] { background: var(--surface); color: var(--texte); box-shadow: 0 1px 3px rgba(31, 36, 48, .1); }
+
+/* ---------- Fenêtre (modale) ---------- */
+.fenetre-fond {
+  position: fixed; inset: 0; z-index: 50;
+  background: rgba(20, 24, 33, .45);
+  display: grid; place-items: center; padding: 16px;
+  animation: apparition var(--transition);
+}
+.fenetre {
+  width: 100%; max-width: 520px; max-height: calc(100dvh - 32px); overflow: auto;
+  background: var(--surface); border-radius: 20px; box-shadow: var(--ombre-forte);
+  padding: 24px;
+  animation: monte 200ms ease;
+}
+.fenetre-entete { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
+.fenetre-titre { margin: 0; font-size: 19px; font-weight: 700; }
+.fenetre-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; flex-wrap: wrap; }
+@keyframes apparition { from { opacity: 0; } }
+@keyframes monte { from { opacity: 0; transform: translateY(10px) scale(.98); } }
+
+/* ---------- Toast (message éphémère) ---------- */
+.toasts {
+  position: fixed; z-index: 60; left: 50%; bottom: 24px; transform: translateX(-50%);
+  display: flex; flex-direction: column; gap: 8px; align-items: center;
+  width: max-content; max-width: calc(100vw - 32px); pointer-events: none;
+}
+.toast {
+  pointer-events: auto;
+  background: var(--texte); color: #fff; border-radius: 14px;
+  padding: 11px 16px; font-size: 14px; box-shadow: var(--ombre-forte);
+  display: flex; align-items: center; gap: 10px;
+  animation: monte 200ms ease;
+}
+.toast.ok::before, .toast.erreur::before, .toast.attention::before {
+  content: ""; width: 8px; height: 8px; border-radius: 50%; flex: none;
+}
+.toast.ok::before { background: #5FD39A; }
+.toast.erreur::before { background: #FF8A80; }
+.toast.attention::before { background: #FFB27A; }
+.toast.sortie { opacity: 0; transform: translateY(6px); transition: opacity 200ms, transform 200ms; }
+
+/* ---------- État vide ---------- */
+.vide { text-align: center; color: var(--texte-2); padding: 28px 16px; font-size: 14px; }
+.vide-titre { color: var(--texte); font-weight: 600; font-size: 18px; margin: 10px 0 4px; }
+
+/* ---------- Squelette (chargement) ---------- */
+.squelette {
+  border-radius: 12px;
+  background: linear-gradient(90deg, var(--gris-pale) 25%, color-mix(in srgb, var(--texte) 3%, var(--surface)) 50%, var(--gris-pale) 75%);
+  background-size: 200% 100%;
+  animation: reflet 1.3s linear infinite;
+}
+@keyframes reflet { to { background-position: -200% 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
+}
+
+/* =============================================================================
+   Page de connexion
+   ============================================================================= */
+.page-connexion { min-height: 100vh; min-height: 100dvh; display: grid; place-items: center; padding: 24px 16px; }
+.page-connexion .carte { width: 100%; max-width: 400px; padding: 32px 28px; }
+.page-connexion .marque { justify-content: center; margin-bottom: 22px; }
+.page-connexion h1 { font-size: 20px; font-weight: 600; margin: 0 0 20px; text-align: center; }
+.page-connexion .champ { margin-bottom: 16px; }
+.page-connexion .bouton { width: 100%; margin-top: 4px; min-height: 46px; font-size: 15px; }
+.message-erreur { min-height: 1.5em; margin: 12px 0 0; font-size: 14px; color: var(--rouge); text-align: center; }

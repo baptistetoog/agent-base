@@ -1,6 +1,6 @@
-# 6. Le contexte et la mémoire de l'agent
+# 6. L'identité, le contexte et la mémoire de l'agent
 
-**Ce qu'on voit à la fin :** l'agent sait qui il est, pour qui il travaille et ce qu'il doit faire. On lui donne du contexte (une fiche et des documents). Il retient ce qu'on lui apprend d'une discussion à l'autre, et la section « Contexte et mémoire » montre ce qu'il a retenu.
+**Ce qu'on voit à la fin :** l'espace prend le nom, le logo et le nom d'agent qu'on veut (Réglages › Identité). L'agent sait qui il est, pour qui il travaille et ce qu'il doit faire. On lui donne du contexte (une fiche et des documents). Il retient ce qu'on lui apprend d'une discussion à l'autre, et la section « Contexte et mémoire » montre ce qu'il a retenu.
 
 ---
 
@@ -33,7 +33,16 @@ L'agent reste générique : on ne lui donne pas encore de métier. On lui constr
 
 4. DANS L'OUTIL : dans l'onglet « Réglages », une section « Contexte et mémoire » (avec le système de design design.css) qui affiche, en sous-onglets, CONTEXTE.md, memoire.md, regles.md, la fiche CLAUDE.md et les documents. Un admin peut modifier et enregistrer ; un membre lit seulement. Côté serveur, seuls ces fichiers et le dossier documents/ sont accessibles par cette page. L'étape 2 de la carte « Mise en route » (« Donner son contexte à l'agent ») devient active : elle mène à cette section et se coche quand la rubrique « Sa mission » de CONTEXTE.md n'est plus « À compléter ». Le voyant « Contexte » de l'État du système suit la même règle.
 
+5. L'IDENTITÉ DE L'ESPACE : en tête de l'onglet « Réglages », une section « Identité » (admin ; un membre la voit sans pouvoir la modifier) pour personnaliser l'espace sans toucher au code :
+   - le nom de l'espace (affiché dans l'en-tête, l'onglet du navigateur et la page de connexion) ;
+   - le logo : envoi d'une image PNG, JPEG ou SVG (2 Mo maximum), avec un aperçu et un bouton « Retirer le logo ». Il remplace le carré avec l'initiale dans l'en-tête et sur la page de connexion, et sert d'icône d'onglet. Le serveur vérifie le vrai type du fichier, l'enregistre sous un nom fixe dans data/ et le sert par une route publique /api/logo (un SVG est servi avec une politique de sécurité qui interdit tout script) ;
+   - le nom de l'agent : celui de son étiquette au-dessus de la scène, de sa bulle de bienvenue et de l'écran de son ordinateur dans le bureau 3D ;
+   - le texte de son badge, sur sa poitrine (4 caractères maximum, en majuscules) ;
+   - un bouton « Enregistrer » : tout est rangé dans data/identite.json, prioritaire sur les valeurs NOM_OUTIL et NOM_AGENT du service, et /api/marque renvoie ces valeurs. La scène 3D est recréée tout de suite avec le nouveau nom et le nouveau badge, sans recharger la page.
+   - Le nom de l'agent est aussi mis à jour dans agent/CLAUDE.md (la ligne « Qui il est »), pour qu'il se présente sous son nouveau nom.
+
 Vérifie toi-même (compte de test créé puis supprimé) :
+- change le nom de l'espace, le nom de l'agent et le badge par l'API, envoie un petit logo PNG de test, vérifie /api/marque et /api/logo, puis demande à l'agent « Comment t'appelles-tu ? » : il doit donner le nouveau nom ; remets ensuite les valeurs d'origine et retire le logo de test ;
 - dépose un petit document de test (un fichier texte qui dit que « le code interne du projet est ORION-7 ») et demande à l'agent « Quel est le code interne du projet ? » : il doit le trouver dans le document et le citer ; supprime ensuite ce document ;
 - dis à l'agent « Retiens que je préfère des réponses en listes à puces ». Vérifie que memoire.md contient la ligne. Puis, dans une NOUVELLE discussion, demande-lui comment je préfère les réponses : il doit le savoir. Retire ensuite cette ligne de test de memoire.md ;
 - demande-lui de modifier regles.md : il doit échouer.

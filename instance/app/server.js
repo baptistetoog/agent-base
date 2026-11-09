@@ -6,6 +6,7 @@ const http = require('http');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const agent = require('./agent');
 
 process.umask(0o077); // tout fichier créé par le serveur n'est lisible que par son propriétaire
 
@@ -27,7 +28,7 @@ const DUREE_BLOCAGE = 15 * 60 * 1000;        // 15 minutes
 const NOM_COOKIE = 'session';
 
 // Fichiers accessibles sans être connecté (la page de connexion et ses fichiers).
-const PUBLICS = new Set(['/connexion.html', '/connexion.js', '/style.css']);
+const PUBLICS = new Set(['/connexion.html', '/connexion.js', '/design.css']);
 
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -191,13 +192,70 @@ setInterval(() => {
 
 // ---------- Réponses ----------
 
+// Empreinte sha256 de l'importmap en ligne de index.html (recalculée si la page change),
+// pour l'autoriser dans la CSP sans ouvrir les scripts en ligne en général.
+let empreinteImportmap = { mtime: 0, valeurs: [] };
+function empreintesImportmap() {
+  const fichier = path.join(PUBLIC, 'index.html');
+  let st;
+  try { st = fs.statSync(fichier); } catch { return []; }
+  if (st.mtimeMs !== empreinteImportmap.mtime) {
+    const html = fs.readFileSync(fichier, 'utf8');
+    const valeurs = [];
+    const re = /<script type="importmap">([\s\S]*?)<\/script>/g;
+    let m;
+    while ((m = re.exec(html))) valeurs.push(`'sha256-${crypto.createHash('sha256').update(m[1], 'utf8').digest('base64')}'`);
+    empreinteImportmap = { mtime: st.mtimeMs, valeurs };
+  }
+  return empreinteImportmap.valeurs;
+}
+
 function entetesSecurite(res) {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'same-origin');
+  // three.js vient de cdn.jsdelivr.net ; l'importmap est autorisée par son empreinte.
+  // style-src 'unsafe-inline' : nécessaire à l'illustration de secours (SVG) de bureau3d.js
+  // quand WebGL n'est pas disponible (styles en ligne dans le SVG).
   res.setHeader('Content-Security-Policy',
-    "default-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; " +
-    "img-src 'self' data:; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");
+    "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; " +
+    `img-src 'self' data: blob:; script-src 'self' https://cdn.jsdelivr.net ${empreintesImportmap().join(' ')}; ` +
+    "connect-src 'self'; worker-src 'none'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");
+}
+
+// ---------- Temps réel (Server-Sent Events) ----------
+
+const abonnes = new Set();
+function diffuser(evenement, donnees) {
+  const morceau = `event: ${evenement}\ndata: ${JSON.stringify(donnees)}\n\n`;
+  for (const res of abonnes) { try { res.write(morceau); } catch { abonnes.delete(res); } }
+}
+setInterval(() => { for (const res of abonnes) { try { res.write(': ping\n\n'); } catch { abonnes.delete(res); } } }, 20000).unref();
+
+agent.init({ diffuser, nomAgent: NOM_AGENT });
+
+// État de la mise en route et voyants du système.
+// Les étapes 2 à 4 arrivent aux étapes suivantes de l'installation : passer « disponible » à true
+// et brancher « fait » quand leur fonction sera installée.
+function etatSysteme() {
+  const claude = agent.etatClaude();
+  const etapes = [
+    { id: 'claude', titre: 'Connecter Claude', disponible: true, fait: claude.connecte },
+    { id: 'contexte', titre: 'Donner son contexte à l\'agent', disponible: false, fait: false },
+    { id: 'outil', titre: 'Brancher un premier outil (MCP ou clé API)', disponible: false, fait: false },
+    { id: 'mission', titre: 'Lui confier une première mission automatique', disponible: false, fait: false },
+  ];
+  return {
+    claude,
+    agent: agent.statut(),
+    miseEnRoute: { etapes, terminee: etapes.every((e) => e.fait) },
+    voyants: {
+      claude: { disponible: true, ok: claude.connecte, texte: claude.connecte ? 'Connecté' : 'Non connecté' },
+      contexte: { disponible: false, ok: false, texte: 'Bientôt disponible' },
+      connexions: { disponible: false, ok: false, texte: 'Bientôt disponible' },
+      automatisation: { disponible: false, ok: false, texte: 'Bientôt disponible' },
+    },
+  };
 }
 
 function json(res, code, objet, entetes = {}) {
@@ -312,6 +370,58 @@ async function traiter(req, res) {
   if (chemin === '/api/moi' && methode === 'GET') {
     const c = session.compte;
     return json(res, 200, { email: c.email, nom: c.nom, prenom: prenom(c.nom), role: c.role });
+  }
+
+  const estAdmin = session.compte.role === 'admin';
+
+  if (chemin === '/api/etat' && methode === 'GET') return json(res, 200, etatSysteme());
+
+  if (chemin === '/api/discussion' && methode === 'GET') return json(res, 200, agent.discussion());
+
+  if (chemin === '/api/flux' && methode === 'GET') {
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      'X-Accel-Buffering': 'no',
+      Connection: 'keep-alive',
+    });
+    res.write('retry: 3000\n\n');
+    res.write(`event: etat\ndata: ${JSON.stringify({ agent: agent.statut(), claude: agent.etatClaude(), enCours: agent.enCours() })}\n\n`);
+    abonnes.add(res);
+    req.on('close', () => abonnes.delete(res));
+    return;
+  }
+
+  if (methode === 'POST' && chemin.startsWith('/api/')) {
+    // Les envois de l'interface sont toujours en JSON (protection contre les formulaires d'autres sites).
+    if (!String(req.headers['content-type'] || '').includes('application/json')) {
+      return json(res, 415, { erreur: 'Format attendu : JSON' });
+    }
+  }
+
+  if (chemin === '/api/message' && methode === 'POST') {
+    let corps;
+    try { corps = await lireCorps(req, 128 * 1024); } catch { return json(res, 413, { erreur: 'Message trop long' }); }
+    const r = agent.envoyer(corps.texte, session.compte);
+    const { code, ...reste } = r;
+    return json(res, code, reste);
+  }
+
+  if (chemin === '/api/arreter' && methode === 'POST') return json(res, 200, { ok: true, arrete: agent.arreter() });
+
+  if (chemin === '/api/nouvelle' && methode === 'POST') return json(res, 200, { ok: true, ...agent.nouvelleDiscussion(session.compte) });
+
+  if (chemin === '/api/claude/connecter' && methode === 'POST') {
+    if (!estAdmin) return json(res, 403, { erreur: 'Seul un admin peut connecter Claude.' });
+    let corps;
+    try { corps = await lireCorps(req); } catch { return json(res, 413, { erreur: 'Clé trop longue' }); }
+    const r = await agent.connecterClaude(corps.cle, session.compte);
+    return json(res, r.ok ? 200 : 400, r);
+  }
+
+  if (chemin === '/api/claude/deconnecter' && methode === 'POST') {
+    if (!estAdmin) return json(res, 403, { erreur: 'Seul un admin peut déconnecter Claude.' });
+    return json(res, 200, { ok: true, claude: agent.deconnecterClaude(session.compte) });
   }
 
   if (chemin.startsWith('/api/')) return json(res, 404, { erreur: 'Introuvable' });
