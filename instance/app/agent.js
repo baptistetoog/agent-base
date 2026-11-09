@@ -194,16 +194,15 @@ const MESSAGES_TEST = {
   technique: 'Le programme Claude ne démarre pas sur le serveur. Prévenez la personne qui l\'a installé.',
 };
 
-async function connecterClaude(brut, compte) {
-  const n = nettoyerCle(brut);
-  if (n.erreur) return { ok: false, erreur: n.erreur };
+// Teste une clé propre puis, si Claude l'accepte, l'enregistre (600). Sert aux deux méthodes.
+async function testerEtEnregistrer(cle, compte) {
   if (testEnCours) return { ok: false, erreur: 'Une vérification est déjà en cours. Patientez quelques secondes.' };
   testEnCours = true;
   try {
-    const r = await testerCle(n.cle);
+    const r = await testerCle(cle);
     if (!r.ok) return { ok: false, erreur: MESSAGES_TEST[r.raison] || MESSAGES_TEST.refusee };
     const tmp = FICHIER_JETON + '.' + process.pid + '.tmp';
-    fs.writeFileSync(tmp, `CLAUDE_CODE_OAUTH_TOKEN=${n.cle}\n`, { mode: 0o600 });
+    fs.writeFileSync(tmp, `CLAUDE_CODE_OAUTH_TOKEN=${cle}\n`, { mode: 0o600 });
     fs.chmodSync(tmp, 0o600);
     fs.renameSync(tmp, FICHIER_JETON);
     ecrireJSON(FICHIER_CLAUDE, { connecteLe: maintenant(), par: compte ? compte.email : null });
@@ -213,6 +212,146 @@ async function connecterClaude(brut, compte) {
   } finally {
     testEnCours = false;
   }
+}
+
+async function connecterClaude(brut, compte) {
+  const n = nettoyerCle(brut);
+  if (n.erreur) return { ok: false, erreur: n.erreur };
+  return testerEtEnregistrer(n.cle, compte);
+}
+
+// ---------- Connexion sans Terminal (claude setup-token lancé par le serveur) ----------
+// Le serveur lance lui-même `claude setup-token` dans un pseudo-terminal (commande `script`),
+// lit le lien d'autorisation, l'envoie à la page, puis écrit dans le processus le code que
+// la personne a copié chez Claude. La clé obtenue est testée et enregistrée comme une clé collée.
+// Ni le code, ni la clé, ni le lien complet ne sont écrits dans les journaux.
+
+const DUREE_CONNEXION = 10 * 60 * 1000;  // processus arrêté au bout de 10 minutes sans code
+const DUREE_LIEN = 45 * 1000;            // temps maximum pour obtenir le lien
+const DUREE_CODE = 60 * 1000;            // temps maximum pour échanger le code contre la clé
+const DEBUT_LIEN = 'https://claude.com/cai/oauth/authorize';
+const MSG_CODE_REFUSE = 'Le code n\'a pas été accepté : recommencez.';
+
+let connexion = null; // { proc, sortie, fini, minuterie }
+
+// Retire les séquences d'échappement du terminal (couleurs, liens OSC 8, déplacements du curseur).
+function texteSansEchappements(s) {
+  return String(s || '')
+    .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '')
+    .replace(/\x1b\[[0-9;?<>=]*[ -\/]*[@-~]/g, '')
+    .replace(/\x1b[()][A-Za-z0-9]/g, '')
+    .replace(/\x1b[78=>]/g, '')
+    .replace(/[\x00-\x08\x0b-\x1f\x7f]/g, (c) => (c === '\r' ? '\n' : ''));
+}
+
+function arreterConnexion() {
+  const c = connexion;
+  connexion = null;
+  if (!c) return;
+  clearTimeout(c.minuterie);
+  tuer(c.proc);
+}
+
+// Lance claude setup-token et renvoie le lien d'autorisation. Un seul processus à la fois :
+// une nouvelle demande arrête la précédente.
+function demarrerConnexion(compte) {
+  arreterConnexion();
+  return new Promise((resolve) => {
+    // COLUMNS=400 et un pseudo-terminal large (stty) pour que ni le lien ni la clé ne soient coupés.
+    const commande = `stty cols 400 rows 50 2>/dev/null; exec ${CLAUDE} setup-token`;
+    const env = environnement('');
+    delete env.CLAUDE_CODE_OAUTH_TOKEN;
+    env.COLUMNS = '400';
+    env.LINES = '50';
+    env.TERM = 'xterm-256color';
+    let proc;
+    try {
+      proc = spawn('/usr/bin/script', ['-qfc', commande, '/dev/null'], { cwd: RACINE, env, stdio: ['pipe', 'pipe', 'pipe'], detached: true });
+    } catch {
+      return resolve({ ok: false, erreur: MESSAGES_TEST.technique });
+    }
+    const c = { proc, sortie: '', fini: false, attente: null };
+    connexion = c;
+    let repondu = false;
+    const repondre = (r) => { if (!repondu) { repondu = true; clearTimeout(delaiLien); resolve(r); } };
+    const delaiLien = setTimeout(() => {
+      if (connexion === c) arreterConnexion();
+      console.error('Connexion Claude : lien non obtenu à temps.');
+      repondre({ ok: false, erreur: 'Claude n\'a pas répondu à temps. Réessayez dans un instant.' });
+    }, DUREE_LIEN);
+    c.minuterie = setTimeout(() => { if (connexion === c) { console.log('Connexion Claude : abandonnée (10 minutes sans code).'); arreterConnexion(); } }, DUREE_CONNEXION);
+    proc.stdin.on('error', () => {});
+    proc.stdout.on('data', (d) => {
+      c.sortie += d.toString('utf8');
+      if (c.sortie.length > 200000) c.sortie = c.sortie.slice(-100000);
+      if (!repondu) {
+        // Le lien apparaît deux fois (cible du lien OSC 8, puis texte visible) : on garde le premier, complet.
+        const i = c.sortie.indexOf(DEBUT_LIEN);
+        if (i >= 0) {
+          const m = c.sortie.slice(i).match(/^https:\/\/claude\.com\/cai\/oauth\/authorize\?[^\s\x07\x1b"'<>]+/);
+          if (m && /[\x07\x1b\s]/.test(c.sortie.slice(i + m[0].length, i + m[0].length + 1))) {
+            console.log(`Connexion Claude : lien d'autorisation obtenu pour ${compte ? compte.email : 'inconnu'}.`);
+            repondre({ ok: true, lien: m[0] });
+          }
+        }
+      }
+      if (c.attente) c.attente();
+    });
+    proc.stderr.on('data', () => {});
+    proc.on('error', () => { repondre({ ok: false, erreur: MESSAGES_TEST.technique }); });
+    proc.on('close', () => {
+      c.fini = true;
+      clearTimeout(c.minuterie);
+      if (connexion === c) connexion = null;
+      if (c.attente) c.attente();
+      repondre({ ok: false, erreur: 'Le programme Claude s\'est arrêté avant d\'afficher le lien. Réessayez.' });
+    });
+  });
+}
+
+// Écrit le code dans le processus en attente, récupère la clé, puis la teste et l'enregistre.
+async function finirConnexion(brut, compte) {
+  const code = String(brut || '').replace(/\s+/g, '');
+  if (!code) return { ok: false, erreur: 'Collez le code affiché par Claude.' };
+  if (code.length > 400 || /[^\x21-\x7e]/.test(code)) return { ok: false, erreur: 'Ce code ne ressemble pas à celui de Claude. Copiez-le en entier.' };
+  const c = connexion;
+  if (!c || c.fini) return { ok: false, erreur: 'La connexion a expiré : recommencez.', relancer: true };
+  if (c.envoye) return { ok: false, erreur: 'Un code est déjà en cours de vérification. Patientez quelques secondes.' };
+  c.envoye = true;
+  clearTimeout(c.minuterie);
+  const depart = c.sortie.length;
+  const resultat = await new Promise((resolve) => {
+    let fini = false;
+    const conclure = (r) => { if (!fini) { fini = true; clearTimeout(delai); c.attente = null; resolve(r); } };
+    const delai = setTimeout(() => conclure({ raison: 'delai' }), DUREE_CODE);
+    c.attente = () => {
+      const t = texteSansEchappements(c.sortie.slice(depart));
+      const m = t.match(/sk-ant-oat01-[A-Za-z0-9_-]{20,}/);
+      if (m) {
+        // On laisse la ligne finir de s'afficher avant de lire la clé en entier.
+        setTimeout(() => {
+          const m2 = texteSansEchappements(c.sortie.slice(depart)).match(/sk-ant-oat01-[A-Za-z0-9_-]{20,}/);
+          conclure({ cle: (m2 || m)[0] });
+        }, 400);
+        c.attente = null;
+        return;
+      }
+      if (/oauth error|wasn't accepted|press enter to retry|invalid|expired/i.test(t)) return conclure({ raison: 'refuse' });
+      if (c.fini) conclure({ raison: 'refuse' });
+    };
+    c.proc.stdin.write(code + '\r');
+  });
+  // Dans tous les cas, le processus a fini son travail : on l'arrête.
+  if (connexion === c) arreterConnexion(); else tuer(c.proc);
+  if (!resultat.cle) {
+    console.log(`Connexion Claude : code refusé (${resultat.raison === 'delai' ? 'pas de réponse' : 'refusé par Claude'}).`);
+    return { ok: false, erreur: resultat.raison === 'delai' ? 'Claude n\'a pas répondu à temps : recommencez.' : MSG_CODE_REFUSE, relancer: true };
+  }
+  const n = nettoyerCle(resultat.cle);
+  if (n.erreur) return { ok: false, erreur: MSG_CODE_REFUSE, relancer: true };
+  const r = await testerEtEnregistrer(n.cle, compte);
+  if (!r.ok) r.relancer = true;
+  return r;
 }
 
 function deconnecterClaude(compte) {
@@ -537,4 +676,5 @@ function discussion() {
 module.exports = {
   init, envoyer, arreter, nouvelleDiscussion, discussion, statut, enCours,
   etatClaude, connecterClaude, deconnecterClaude, nettoyerCle,
+  demarrerConnexion, finirConnexion,
 };

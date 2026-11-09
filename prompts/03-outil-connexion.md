@@ -24,7 +24,7 @@ Organisation des dossiers (dans /home/{UTILISATEUR}) :
 Le serveur :
 - Un seul fichier app/server.js en Node.js 22, SANS aucune dépendance npm (uniquement les modules intégrés : http, crypto, fs, path, child_process…).
 - Il écoute seulement sur 127.0.0.1:{PORT} (nginx sera devant plus tard).
-- Il sert les pages du dossier app/public/.
+- Il sert les pages du dossier app/public/. Toutes les pages et tous les fichiers sont servis avec `Cache-Control: no-cache` et un ETag (réponse 304 s'il n'a pas changé) : une simple actualisation de la page montre toujours la dernière version, sans vider le cache. Les routes /api/ sont en `Cache-Control: no-store`.
 - Le nom de l'outil et celui de l'agent ne sont écrits en dur nulle part : ils viennent des variables NOM_OUTIL et NOM_AGENT du service systemd, exposées aux pages par une petite route publique GET /api/marque (nom de l'outil, nom de l'agent, initiale).
 
 L'espace de connexion :

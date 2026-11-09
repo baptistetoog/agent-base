@@ -71,7 +71,9 @@ Commandes (en root) :
 
 ## Connecter Claude
 
-- Bouton « Connecter Claude » (pastille orange en haut, carte « Mise en route », Réglages › Claude), réservé aux admins. Fenêtre guidée en 3 étapes (`claude setup-token` sur son ordinateur, autoriser dans le navigateur, coller la clé `sk-ant-oat01-…`).
+- Bouton « Connecter Claude » (pastille orange en haut, carte « Mise en route », Réglages › Claude), réservé aux admins. Même fenêtre partout, deux méthodes :
+  - **Sans Terminal (par défaut)** : gros bouton « Se connecter avec Claude ». Le serveur lance lui-même, en tant que agentforma, `script -qfc "stty cols 400 rows 50; exec ~/.local/bin/claude setup-token" /dev/null` (COLUMNS=400 ; le `stty` est indispensable car `script` lancé sans terminal crée un pseudo-terminal de taille 0 et Claude coupe alors le lien et la clé à 80 colonnes). Il lit le lien d'autorisation (`https://claude.com/cai/oauth/authorize?…`, premier des deux, pris dans la séquence OSC 8) et l'envoie à la page. Étape 1 : bouton « Ouvrir Claude » (nouvel onglet) ; étape 2 : coller le code → le serveur l'écrit dans le processus (suivi d'Entrée, `\r`), lit la clé `sk-ant-oat01-…` dans la sortie, la teste et l'enregistre comme une clé collée. Un seul processus à la fois (une nouvelle demande arrête la précédente), arrêté au bout de 10 minutes sans code, et toujours arrêté après l'envoi d'un code (réussite ou échec). Code refusé : « Le code n'a pas été accepté : recommencez. » + bouton « Recommencer » (nouveau lien). Ni le code, ni la clé, ni le lien ne sont écrits dans les journaux.
+  - **« J'ai déjà une clé »** (secours) : les 3 étapes d'avant (`claude setup-token` sur son ordinateur, autoriser dans le navigateur, coller la clé `sk-ant-oat01-…`). Lien « ← Se connecter avec Claude, sans Terminal » pour revenir.
 - Le serveur nettoie la saisie (espaces, guillemets, `export`, `CLAUDE_CODE_OAUTH_TOKEN=`, clé collée deux fois), la teste avec `claude -p "Réponds seulement : prêt"` et ne l'enregistre (600) que si la réponse est bonne. La clé n'est jamais renvoyée au navigateur ni écrite dans les journaux.
 - « Déconnecter » (admin, avec confirmation) supprime la clé du serveur. Changer de clé ne demande pas de redémarrage.
 - Un membre non admin qui écrit alors que Claude n'est pas connecté voit « L'agent n'est pas encore connecté : demandez à un admin ».
@@ -83,7 +85,13 @@ Commandes (en root) :
 - `GET /api/flux` : temps réel (Server-Sent Events) : `etat`, `statut` (repos / message / reflechit / outil + texte / repond / fini), `message`, `debut`, `morceau`, `outils`, `fin`, `file`, `nouvelle`, `claude`.
 - `POST /api/message` `{texte}`, `POST /api/arreter`, `POST /api/nouvelle`.
 - `POST /api/claude/connecter` `{cle}`, `POST /api/claude/deconnecter` (admin).
+- `POST /api/claude/lien` (admin) : lance `claude setup-token`, renvoie `{lien}`. `POST /api/claude/code` `{code}` (admin) : échange le code contre la clé, la teste et l'enregistre ; en cas d'échec renvoie `relancer: true`.
 - Mise en route : les étapes 2 à 4 sont « Bientôt disponible ». À l'étape qui installe chaque fonction : dans `etatSysteme()` de `app/server.js`, passer `disponible` à `true` et brancher `fait` (et le voyant correspondant).
+
+## Cache du navigateur
+
+- Toutes les pages et fichiers de `app/public` sont servis avec `Cache-Control: no-cache` + `ETag` (taille + date de modification) + `Last-Modified` : le navigateur redemande toujours, le serveur répond 304 si rien n'a changé. Une actualisation normale montre donc toujours la dernière version (pas besoin de Cmd+Maj+R).
+- Les routes `/api/` restent en `Cache-Control: no-store`.
 
 ## Sécurité du contenu (CSP, posée par app/server.js)
 
@@ -123,3 +131,11 @@ Commandes (en root) :
 - Cerveau `app/agent.js`, nouvelles routes et CSP dans `app/server.js` ; `agent/CLAUDE.md` provisoire et `agent/.claude/settings.json`.
 - Vérifié sans clé Claude : service actif ; pages protégées ; `/api/etat`, `/api/discussion`, flux temps réel ; message refusé avec le bon texte (admin / membre) ; seul un admin peut connecter Claude ; nettoyage de la clé (export, guillemets, collée deux fois) ; une fausse clé est refusée par Claude (« Clé refusée par Claude… »), rien n'est enregistré ni écrit dans les journaux ; logique du cerveau (morceaux en direct, outils, coût, file, Arrêter, --resume, nouvelle discussion) testée avec un faux programme claude ; captures ordinateur et mobile : scène 3D chargée, aucune erreur de console ni de CSP. Comptes de test supprimés.
 - RESTE À FAIRE : coller la clé dans « Connecter Claude », puis vérifier une vraie réponse, la mémoire d'un message à l'autre et le refus de lire data/comptes.json.
+
+### Étape 5 (amélioration) — connexion à Claude sans Terminal + cache (09/11/2026)
+- Sauvegarde : `sauvegardes/app-avant-etape5b-20261109-0957.tar.gz`.
+- `app/agent.js` : `demarrerConnexion` / `finirConnexion` (claude setup-token piloté par le serveur dans un pseudo-terminal), `testerEtEnregistrer` commun aux deux méthodes.
+- `app/server.js` : routes `/api/claude/lien` et `/api/claude/code` ; fichiers statiques en `no-cache` + ETag / 304.
+- `index.html`, `app.js`, `bureau.css` : fenêtre « Connecter Claude » en deux méthodes (sans Terminal par défaut, « J'ai déjà une clé » en secours).
+- Vérifié : le lien commence par https://claude.com/cai/oauth/authorize et contient code_challenge ; le processus tourne en tant que agentforma sous le service (ProtectSystem=strict, PrivateTmp) ; un faux code donne « Le code n'a pas été accepté : recommencez. », rien n'est enregistré et le processus est arrêté ; une deuxième demande de lien remplace la première (un seul processus) ; une fausse clé collée est toujours refusée ; rien de secret dans les journaux ; cache : en-têtes présents, 304 avec If-None-Match, 200 après modification ; captures ordinateur et mobile. Compte de test supprimé.
+- RESTE À FAIRE : une vraie connexion avec un compte Claude (Pro ou Max), puis les vérifications de l'étape 5 (vraie réponse, mémoire, refus de lire data/comptes.json).

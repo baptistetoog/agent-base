@@ -290,16 +290,27 @@ function lireCorps(req, max = 16 * 1024) {
   });
 }
 
-function servirFichier(res, chemin) {
+// Pages et fichiers de app/public : « Cache-Control: no-cache » + ETag (taille + date de modification).
+// Le navigateur redemande toujours au serveur ; si le fichier n'a pas changé, réponse 304 (rien à retélécharger).
+// Une actualisation normale affiche donc toujours la dernière version.
+function servirFichier(res, chemin, req) {
   const complet = path.normalize(path.join(PUBLIC, chemin));
   if (!complet.startsWith(PUBLIC + path.sep)) return json(res, 404, { erreur: 'Introuvable' });
   fs.stat(complet, (err, st) => {
     if (err || !st.isFile()) {
-      res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
       return res.end('Page introuvable');
     }
     const type = TYPES[path.extname(complet).toLowerCase()] || 'application/octet-stream';
-    res.writeHead(200, { 'Content-Type': type, 'Cache-Control': type.startsWith('text/html') ? 'no-store' : 'no-cache' });
+    const etag = `"${st.size.toString(16)}-${Math.floor(st.mtimeMs).toString(16)}"`;
+    const entetes = { 'Cache-Control': 'no-cache', ETag: etag, 'Last-Modified': st.mtime.toUTCString() };
+    const demande = req && req.headers['if-none-match'];
+    if (demande && demande.split(',').map((e) => e.trim().replace(/^W\//, '')).includes(etag)) {
+      res.writeHead(304, entetes);
+      return res.end();
+    }
+    res.writeHead(200, { 'Content-Type': type, 'Content-Length': st.size, ...entetes });
+    if (req && req.method === 'HEAD') return res.end();
     fs.createReadStream(complet).pipe(res);
   });
 }
@@ -350,7 +361,7 @@ async function traiter(req, res) {
   // Page de connexion et ses fichiers : accessibles à tous.
   if (methode === 'GET' && PUBLICS.has(chemin)) {
     if (chemin === '/connexion.html' && utilisateurConnecte(req)) return rediriger(res, '/');
-    return servirFichier(res, chemin);
+    return servirFichier(res, chemin, req);
   }
 
   // Tout le reste exige d'être connecté.
@@ -419,6 +430,22 @@ async function traiter(req, res) {
     return json(res, r.ok ? 200 : 400, r);
   }
 
+  // Connexion sans Terminal : le serveur lance claude setup-token et renvoie le lien d'autorisation.
+  if (chemin === '/api/claude/lien' && methode === 'POST') {
+    if (!estAdmin) return json(res, 403, { erreur: 'Seul un admin peut connecter Claude.' });
+    const r = await agent.demarrerConnexion(session.compte);
+    return json(res, r.ok ? 200 : 400, r);
+  }
+
+  // Puis la page envoie le code copié chez Claude : le serveur l'échange contre la clé, la teste et l'enregistre.
+  if (chemin === '/api/claude/code' && methode === 'POST') {
+    if (!estAdmin) return json(res, 403, { erreur: 'Seul un admin peut connecter Claude.' });
+    let corps;
+    try { corps = await lireCorps(req); } catch { return json(res, 413, { erreur: 'Code trop long' }); }
+    const r = await agent.finirConnexion(corps.code, session.compte);
+    return json(res, r.ok ? 200 : 400, r);
+  }
+
   if (chemin === '/api/claude/deconnecter' && methode === 'POST') {
     if (!estAdmin) return json(res, 403, { erreur: 'Seul un admin peut déconnecter Claude.' });
     return json(res, 200, { ok: true, claude: agent.deconnecterClaude(session.compte) });
@@ -427,7 +454,7 @@ async function traiter(req, res) {
   if (chemin.startsWith('/api/')) return json(res, 404, { erreur: 'Introuvable' });
 
   if (methode !== 'GET' && methode !== 'HEAD') return json(res, 405, { erreur: 'Méthode non autorisée' });
-  return servirFichier(res, chemin === '/' ? '/index.html' : chemin);
+  return servirFichier(res, chemin === '/' ? '/index.html' : chemin, req);
 }
 
 const serveur = http.createServer((req, res) => {

@@ -25,6 +25,7 @@
     <symbol id="i-chevron" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M6 9l6 6 6-6"/></symbol>
     <symbol id="i-menu" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M4 7h16M4 12h16M4 17h16"/></symbol>
     <symbol id="i-sortie" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M14 4h3.5A2.5 2.5 0 0 1 20 6.5v11a2.5 2.5 0 0 1-2.5 2.5H14M10 16l-4-4 4-4M6 12h10"/></symbol>
+    <symbol id="i-externe" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M14 5h5v5M19 5l-8 8M17 14v4a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 5 18V8.5A1.5 1.5 0 0 1 6.5 7H10"/></symbol>
     <symbol id="i-cle" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"/><path d="M11 12l8-8M16 7l2 2M14 9l2 2"/></g></symbol>
   </svg>
 
@@ -171,9 +172,42 @@
         <h2 class="fenetre-titre" id="titreFenetreClaude">Connecter Claude</h2>
         <button class="bouton-icone" type="button" data-fermer aria-label="Fermer"><svg class="icone"><use href="#i-fermer"/></svg></button>
       </div>
-      <p class="carte-aide">L'agent travaille avec votre abonnement Claude. Trois étapes, environ deux minutes.</p>
+      <p class="carte-aide">L'agent travaille avec votre abonnement Claude (Pro ou Max). Environ une minute.</p>
 
-      <div id="claudeGuide">
+      <!-- Méthode principale : sans Terminal -->
+      <div id="claudeAuto">
+        <div id="claudeDepart">
+          <button class="bouton bouton-large bouton-grand" type="button" id="boutonLien">Se connecter avec Claude</button>
+          <p class="message-erreur guide-erreur" id="erreurLien" role="alert"></p>
+        </div>
+        <ol class="guide" id="claudeEtapes" hidden>
+          <li class="guide-etape">
+            <span class="guide-num">1</span>
+            <div class="guide-corps">
+              <p>Cliquez sur ce bouton : la page de Claude s'ouvre. Connectez-vous à votre compte Claude (Pro ou Max) et cliquez sur <strong>Autoriser</strong>.</p>
+              <a class="bouton bouton-ouvrir" id="lienClaude" href="#" target="_blank" rel="noopener noreferrer">Ouvrir Claude <svg class="icone" aria-hidden="true"><use href="#i-externe"/></svg></a>
+            </div>
+          </li>
+          <li class="guide-etape">
+            <span class="guide-num">2</span>
+            <div class="guide-corps">
+              <p>Claude affiche un code. Copiez-le et collez-le ici :</p>
+              <form id="formCode" autocomplete="off" novalidate>
+                <label class="visuellement-cache" for="champCode">Code affiché par Claude</label>
+                <input class="champ" id="champCode" name="code-claude" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Collez le code ici" required>
+                <p class="rassurant">🔒 La clé est rangée dans le coffre du serveur. Elle ne sera plus jamais affichée. Ne la collez jamais dans une discussion.</p>
+                <p class="message-erreur guide-erreur" id="erreurCode" role="alert"></p>
+                <button class="bouton bouton-large" type="submit" id="boutonCode">Connecter</button>
+                <button class="bouton-secondaire bouton-large" type="button" id="boutonRelancer" hidden>Recommencer</button>
+              </form>
+            </div>
+          </li>
+        </ol>
+        <p class="bascule"><button class="lien-bouton" type="button" id="versCle">J'ai déjà une clé</button></p>
+      </div>
+
+      <!-- Solution de secours : coller une clé obtenue avec claude setup-token -->
+      <div id="claudeGuide" hidden>
         <ol class="guide">
           <li class="guide-etape">
             <span class="guide-num">1</span>
@@ -205,6 +239,7 @@
             </div>
           </li>
         </ol>
+        <p class="bascule"><button class="lien-bouton" type="button" id="versAuto">← Se connecter avec Claude, sans Terminal</button></p>
       </div>
 
       <div class="claude-succes" id="claudeSucces" hidden>

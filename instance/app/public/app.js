@@ -571,18 +571,95 @@ function fermerFenetre(id) {
   const f = $('#' + id);
   if (f.hidden) return;
   f.hidden = true;
-  if (id === 'fenetreClaude') { $('#champCle').value = ''; $('#erreurCle').textContent = ''; }
+  if (id === 'fenetreClaude') { $('#champCle').value = ''; $('#erreurCle').textContent = ''; $('#champCode').value = ''; }
   if (derniereFocalisation && derniereFocalisation.focus) derniereFocalisation.focus();
 }
 
 function ouvrirFenetreClaude() {
   if (!estAdmin()) { toast('Seul un admin peut connecter Claude.', 'attention'); return; }
-  $('#claudeGuide').hidden = false;
+  methodeClaude('auto');
+  remettreAZeroAuto();
   $('#claudeSucces').hidden = true;
   $('#titreFenetreClaude').textContent = app.claude.connecte ? 'Changer la clé Claude' : 'Connecter Claude';
   $('#erreurCle').textContent = '';
   $('#champCle').value = '';
   ouvrirFenetre('fenetreClaude');
+}
+
+// Deux méthodes dans la même fenêtre : « auto » (sans Terminal, par défaut) ou « cle » (J'ai déjà une clé).
+function methodeClaude(m) {
+  $('#claudeAuto').hidden = m !== 'auto';
+  $('#claudeGuide').hidden = m !== 'cle';
+}
+
+function remettreAZeroAuto() {
+  $('#claudeDepart').hidden = false;
+  $('#claudeEtapes').hidden = true;
+  $('#erreurLien').textContent = '';
+  $('#erreurCode').textContent = '';
+  $('#champCode').value = '';
+  $('#champCode').disabled = false;
+  $('#boutonCode').hidden = false;
+  $('#boutonRelancer').hidden = true;
+  $('#lienClaude').setAttribute('href', '#');
+  const b = $('#boutonLien');
+  b.disabled = false;
+  b.textContent = 'Se connecter avec Claude';
+}
+
+// Le serveur lance claude setup-token et renvoie le lien d'autorisation.
+async function demanderLien() {
+  remettreAZeroAuto();
+  const b = $('#boutonLien');
+  b.disabled = true;
+  b.textContent = 'Préparation…';
+  try {
+    const r = await api('/api/claude/lien', { corps: {} });
+    $('#lienClaude').setAttribute('href', r.lien);
+    $('#claudeDepart').hidden = true;
+    $('#claudeEtapes').hidden = false;
+    setTimeout(() => $('#lienClaude').focus(), 30);
+  } catch (e) {
+    $('#erreurLien').textContent = e.message;
+    b.disabled = false;
+    b.textContent = 'Se connecter avec Claude';
+  }
+}
+
+async function envoyerCode(ev) {
+  ev.preventDefault();
+  const champ = $('#champCode');
+  const erreur = $('#erreurCode');
+  const bouton = $('#boutonCode');
+  erreur.textContent = '';
+  if (!champ.value.trim()) { erreur.textContent = 'Collez d\'abord le code affiché par Claude.'; champ.focus(); return; }
+  bouton.disabled = true;
+  champ.disabled = true;
+  bouton.textContent = 'Vérification…';
+  try {
+    const r = await api('/api/claude/code', { corps: { code: champ.value } });
+    champ.value = '';
+    majClaude(r.claude);
+    $('#claudeAuto').hidden = true;
+    $('#claudeSucces').hidden = false;
+    chargerEtat();
+    setTimeout(() => fermerFenetre('fenetreClaude'), 2200);
+  } catch (e) {
+    erreur.textContent = e.message;
+    if (e.donnees && e.donnees.relancer) {
+      // Le processus de connexion est arrêté : il faut un nouveau lien.
+      champ.value = '';
+      bouton.hidden = true;
+      $('#boutonRelancer').hidden = false;
+      $('#lienClaude').setAttribute('href', '#');
+    } else {
+      champ.disabled = false;
+    }
+  } finally {
+    bouton.disabled = false;
+    bouton.textContent = 'Connecter';
+    if (!bouton.hidden) champ.disabled = false;
+  }
 }
 
 function confirmer(titre, texte, libelle) {
@@ -689,6 +766,12 @@ function brancherInterface() {
   $('#reglageConnecter').addEventListener('click', ouvrirFenetreClaude);
   $('#reglageDeconnecter').addEventListener('click', deconnecterClaude);
   $('#formClaude').addEventListener('submit', connecterClaude);
+  $('#boutonLien').addEventListener('click', demanderLien);
+  $('#boutonRelancer').addEventListener('click', demanderLien);
+  $('#formCode').addEventListener('submit', envoyerCode);
+  $('#lienClaude').addEventListener('click', (e) => { if ($('#lienClaude').getAttribute('href') === '#') e.preventDefault(); });
+  $('#versCle').addEventListener('click', () => { methodeClaude('cle'); setTimeout(() => $('#copierCommande').focus(), 30); });
+  $('#versAuto').addEventListener('click', () => { methodeClaude('auto'); setTimeout(() => $('#boutonLien').focus(), 30); });
   $('#copierCommande').addEventListener('click', async (e) => {
     const b = e.currentTarget;
     try { await navigator.clipboard.writeText('claude setup-token'); b.textContent = 'Copié ✓'; }
