@@ -5,3 +5,5 @@ Méthode : chaque prompt est collé tel quel dans une session Claude vierge. Qua
 
 | Étape | Date | Résultat | Écarts et corrections du prompt |
 |---|---|---|---|
+| 1 · Espace serveur | 09/11 | Réussi | Précisé : mot de passe verrouillé (adduser --disabled-password), installation et vérification avec `sudo -iu`, avertissement PATH à ignorer, autres ports ouverts listés sans être fermés (8080 utilisé par un autre site), extension certbot nginx. |
+| 2 · Clé Claude | 09/11 | À la main | Pas de prompt : `claude setup-token` sur l'ordinateur de l'apprenant. |
