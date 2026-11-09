@@ -7,3 +7,4 @@ Méthode : chaque prompt est collé tel quel dans une session Claude vierge. Qua
 |---|---|---|---|
 | 1 · Espace serveur | 09/11 | Réussi | Précisé : mot de passe verrouillé (adduser --disabled-password), installation et vérification avec `sudo -iu`, avertissement PATH à ignorer, autres ports ouverts listés sans être fermés (8080 utilisé par un autre site), extension certbot nginx. |
 | 2 · Clé Claude | 09/11 | À la main | Pas de prompt : `claude setup-token` sur l'ordinateur de l'apprenant. |
+| 3 · Outil et connexion | 09/11 | Réussi (11 vérifications) | Précisé : 401 en JSON pour les API, cookie Secure (test en curl avant HTTPS), IP via X-Forwarded-For seulement depuis 127.0.0.1, creer-compte.js lancé par root garde le bon propriétaire, empreinte du cookie relue à chaud. |
