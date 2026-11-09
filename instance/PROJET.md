@@ -49,6 +49,16 @@ Commandes (en root) :
 - Sans connexion, seuls `/connexion.html`, `/connexion.js`, `/style.css` et `/api/marque` répondent. Les autres pages renvoient vers `/connexion.html`, les autres API répondent 401.
 - Routes : `GET /api/marque` (public), `POST /api/connexion`, `POST /api/deconnexion`, `GET /api/moi`.
 
+## Mise en ligne (nginx + HTTPS)
+
+- Configuration nginx : `/etc/nginx/sites-available/agentforma` (lien dans `sites-enabled/`). Seul fichier nginx propre à cet outil ; ne jamais toucher aux autres sites du serveur.
+  - Port 80 : sert `/.well-known/acme-challenge/` depuis `/var/www/certbot`, renvoie tout le reste vers HTTPS (301).
+  - Port 443 : proxy vers 127.0.0.1:4910, temps réel SSE (proxy_buffering off, délai de lecture 24 h), envois jusqu'à 20 Mo, transmet X-Real-IP / X-Forwarded-For.
+  - En-têtes posés par nginx (ceux du serveur Node du même nom sont masqués pour éviter les doublons) : HSTS 1 an, X-Content-Type-Options nosniff, X-Frame-Options SAMEORIGIN, Referrer-Policy strict-origin-when-cross-origin. La CSP reste celle du serveur Node.
+- Certificat Let's Encrypt : `/etc/letsencrypt/live/agentforma.toog-expertise.app/`, méthode webroot, renouvellement automatique (minuteur certbot) avec rechargement de nginx.
+- Modifier la config : éditer le fichier, puis `nginx -t && systemctl reload nginx` (jamais recharger si `nginx -t` échoue).
+- IP réelle : le serveur Node ne lit X-Real-IP / X-Forwarded-For que si la requête vient de 127.0.0.1 (fonction `adresseIP` de `app/server.js`, déjà en place).
+
 ## Journal des étapes
 
 ### Étape 3 — serveur et espace de connexion protégé (09/11/2026)
@@ -57,4 +67,10 @@ Commandes (en root) :
 - Script `app/creer-compte.js`.
 - Service systemd `agentforma-app` activé et démarré.
 - Vérifié : service actif, `/` sans connexion renvoie vers la connexion, compte de test créé, connexion par curl, accueil OK, compte de test supprimé, `data/` lisible seulement par agentforma.
-- Pas encore fait : nginx et HTTPS pour https://agentforma.toog-expertise.app (le cookie étant « Secure », la connexion dans un navigateur se fera par l'adresse HTTPS une fois nginx en place).
+- Pas encore fait à cette étape : nginx et HTTPS (fait à l'étape 4).
+
+### Étape 4 — mise en ligne sur https://agentforma.toog-expertise.app (09/11/2026)
+- DNS vérifié : agentforma.toog-expertise.app → 155.117.100.221 (IP publique du serveur).
+- Configuration nginx `agentforma` créée, certificat Let's Encrypt obtenu (expire le 07/02/2027, renouvellement automatique), HTTP → HTTPS.
+- Code Node inchangé : la lecture de l'IP réelle derrière nginx était déjà limitée à 127.0.0.1.
+- Vérifié : certificat valide, HTTP renvoie en 301 vers HTTPS, `/` renvoie vers `/connexion.html` qui s'affiche, `/api/marque` répond, en-têtes de sécurité présents une seule fois, autres sites du serveur toujours en ligne.
