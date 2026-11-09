@@ -19,6 +19,12 @@ LE CERVEAU (côté serveur, dans un fichier app/agent.js appelé par app/server.
   - si la réponse est bonne, l'enregistre dans .claude-token.env (droits 600) et affiche « ✅ Claude est connecté » ; sinon, n'enregistre rien et affiche une erreur claire (« Clé refusée par Claude : refaites claude setup-token »).
   - La clé n'est jamais renvoyée au navigateur ni écrite dans les journaux.
   - En haut du bureau, une pastille indique en permanence « Claude connecté » (vert) ou « Claude non connecté » (orange, cliquable pour ouvrir la fenêtre). Si un membre non admin envoie un message alors que Claude n'est pas connecté, il voit « L'agent n'est pas encore connecté : demandez à un admin ».
+  - LA CONNEXION GUIDÉE : la fenêtre « Connecter Claude » explique tout, pour quelqu'un qui ne l'a jamais fait, en 3 étapes numérotées :
+    1) « Sur votre ordinateur, ouvrez le Terminal et tapez cette commande » : `claude setup-token`, avec un bouton « Copier » ;
+    2) « Votre navigateur s'ouvre : connectez-vous à votre compte Claude (Pro ou Max) et cliquez sur Autoriser. Copiez le code affiché et collez-le dans le Terminal » ;
+    3) « Le Terminal affiche une clé qui commence par sk-ant-oat01-. Copiez-la et collez-la ici » : le champ masqué, puis le bouton « Connecter ».
+    Sous le champ, une phrase rassurante : « La clé est rangée dans le coffre du serveur. Elle ne sera plus jamais affichée. Ne la collez jamais dans une discussion. » Pendant le test de la clé, le bouton affiche « Vérification… ».
+  - LA SECTION « CLAUDE » DES RÉGLAGES : la même chose se retrouve en tête de l'onglet « Réglages », dans une section « Claude » : l'état (connecté depuis le <date>, ou non connecté), un bouton « Connecter Claude » ou « Changer la clé » qui ouvre la même fenêtre guidée, et un bouton « Déconnecter » (admin, avec confirmation) qui supprime la clé du serveur.
 - Variables d'environnement à ajouter pour chaque lancement : ENABLE_CLAUDEAI_MCP_SERVERS=false et DISABLE_AUTOUPDATER=1.
 - Outils autorisés (--allowedTools) : Read, Glob, Grep, WebSearch, WebFetch, Skill. Interdits (--disallowedTools) : Bash, Task, Agent, NotebookEdit. Lance Claude en mode --permission-mode acceptEdits : il écrit librement dans son dossier agent/ (Write et Edit ne sont PAS dans --allowedTools, sinon il pourrait écrire n'importe où sur le serveur).
 - Crée agent/.claude/settings.json (avec "disableAllHooks": true) pour lui interdire, avec des règles permissions.deny de Claude Code de type Read(...) et Edit(...) (Edit couvre aussi l'écriture : pas de règles Write) :

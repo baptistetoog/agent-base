@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Connexion</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main class="connexion">
+    <div class="carte">
+      <div class="marque">
+        <div class="marque-carre" data-initiale></div>
+        <div class="marque-nom" data-nom-outil></div>
+      </div>
+      <h1>Connexion</h1>
+      <form id="formulaire" novalidate>
+        <label for="email">E-mail</label>
+        <input id="email" name="email" type="email" autocomplete="username" required autofocus>
+        <label for="motDePasse">Mot de passe</label>
+        <input id="motDePasse" name="motDePasse" type="password" autocomplete="current-password" required>
+        <button class="bouton" type="submit">Se connecter</button>
+        <p class="message" id="message" role="alert"></p>
+      </form>
+    </div>
+  </main>
+  <script src="/connexion.js"></script>
+</body>
+</html>

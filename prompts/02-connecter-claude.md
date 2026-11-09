@@ -1,6 +1,6 @@
 # 2. Créer la clé de connexion à Claude
 
-**Ce que fait l'apprenant :** il crée, sur son propre ordinateur, la clé qui permettra à l'agent d'utiliser son abonnement Claude. On la colle dans l'outil plus tard, à l'étape 5, dans la case « Connecter Claude », qui affiche « ✅ Claude est connecté ».
+**Ce que fait l'apprenant :** il crée, sur son propre ordinateur, la clé qui permettra à l'agent d'utiliser son abonnement Claude. On la colle dans l'outil plus tard, à l'étape 5, dans Réglages › Claude › « Connecter Claude » (l'outil rappelle alors ces 3 étapes), qui affiche « ✅ Claude est connecté ».
 
 ## À la main (1 minute)
 

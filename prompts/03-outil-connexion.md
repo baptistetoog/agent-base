@@ -30,13 +30,14 @@ Le serveur :
 L'espace de connexion :
 - Page app/public/connexion.html : e-mail + mot de passe, sobre, propre, adaptée au mobile. Elle suit la charte neutre des paramètres. En haut, le carré arrondi avec l'initiale et le nom de l'outil.
 - Les comptes sont dans data/comptes.json : e-mail, nom, rôle (« admin » ou « membre »), mot de passe haché avec crypto.scrypt et un sel unique (jamais en clair).
-- Session par cookie : HttpOnly, Secure, SameSite=Lax, valable 30 jours, sessions stockées dans data/sessions.json.
+- Session par cookie : HttpOnly, Secure, SameSite=Lax, valable 30 jours, sessions stockées dans data/sessions.json (seulement une empreinte du cookie ; le serveur relit le fichier quand il change, pour qu'une suppression de compte ferme bien ses sessions).
 - Après 5 mauvais mots de passe en 15 minutes pour la même adresse IP, on bloque 15 minutes.
-- Toute page ou API (sauf la page de connexion, ses fichiers et /api/marque) renvoie vers la connexion si on n'est pas connecté.
+- Toute page (sauf la page de connexion, ses fichiers et /api/marque) renvoie vers la connexion si on n'est pas connecté ; une API renvoie une erreur 401 en JSON. L'IP du visiteur est lue dans X-Forwarded-For seulement quand la requête vient de 127.0.0.1 (nginx).
+- Le cookie est Secure : le navigateur ne pourra se connecter qu'une fois le HTTPS posé (étape suivante). Pour les tests en curl d'ici là, passe le cookie à la main.
 - Bouton « Se déconnecter ».
 - Un petit script app/creer-compte.js pour créer ou modifier un compte en ligne de commande :
   `node app/creer-compte.js email@exemple.fr "Prénom Nom" admin`
-  Il demande le mot de passe sans l'afficher (deux fois). Il accepte aussi une variable d'environnement MOT_DE_PASSE pour les tests automatiques, et une option --supprimer pour retirer un compte (ses sessions sont fermées).
+  Lancé par root, il se relance ou corrige le propriétaire pour que data/ appartienne toujours à {UTILISATEUR}. Il demande le mot de passe sans l'afficher (deux fois, 10 caractères minimum). Il accepte aussi une variable d'environnement MOT_DE_PASSE pour les tests automatiques, et une option --supprimer pour retirer un compte (ses sessions sont fermées).
 - Une fois connecté, la page app/public/index.html affiche pour l'instant : « Bonjour <prénom>, ton agent arrive bientôt. »
 
 Le service :
