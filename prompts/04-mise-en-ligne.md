@@ -1,14 +1,10 @@
 # 4. Mettre l'outil en ligne sur son sous-domaine
 
-## À la main : le sous-domaine (1 minute)
+## Avant : le sous-domaine
 
-Chez le fournisseur du nom de domaine (GoDaddy, OVH, IONOS…), dans la zone DNS, ajouter :
+Il a été créé à l'étape 0 (enregistrement A vers l'IP du serveur). Ce prompt vérifie qu'il pointe bien sur le serveur avant de poser le cadenas.
 
-| Type | Nom | Valeur | TTL |
-|---|---|---|---|
-| A | `agent` (la partie avant le domaine, ex. agent pour agent.monentreprise.fr) | l'adresse IP du VPS | 1 heure ou moins |
-
-Puis créer son compte admin (le mot de passe est tapé par l'apprenant, il ne s'affiche pas) :
+Si ce n'est pas déjà fait à l'étape 3, créer son compte admin (le mot de passe est tapé par l'apprenant, il ne s'affiche pas) :
 
 ```bash
 ssh -t vps 'sudo -iu {UTILISATEUR} node app/creer-compte.js {EMAIL_ADMIN} "Prénom Nom" admin'

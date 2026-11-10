@@ -5,6 +5,7 @@ Les prompts prêts à coller sont créés dans `mes-prompts/`.
 
 | Paramètre | Valeur | À quoi il sert |
 |---|---|---|
+| IP | 155.117.100.221 | l'adresse IP de votre VPS (dans le mail de l'hébergeur) |
 | UTILISATEUR | agentforma | l'utilisateur Linux qui fait tourner l'agent (minuscules, sans espace) |
 | PORT | 4910 | le port local de l'outil (libre sur le serveur) |
 | DOMAINE | agentforma.toog-expertise.app | le sous-domaine de l'agent |
