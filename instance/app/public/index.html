@@ -34,6 +34,11 @@
     <symbol id="i-globe" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.3 2.4 3.4 5.2 3.4 8.5s-1.1 6.1-3.4 8.5c-2.3-2.4-3.4-5.2-3.4-8.5s1.1-6.1 3.4-8.5z"/></g></symbol>
     <symbol id="i-cle" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"/><path d="M11 12l8-8M16 7l2 2M14 9l2 2"/></g></symbol>
     <symbol id="i-skill" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" d="M13 3L5 13.5h6L10 21l8-10.5h-6z"/></symbol>
+    <symbol id="i-prise" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M9 3v4M15 3v4M6.5 7h11v3.5a5.5 5.5 0 0 1-11 0zM12 16v5"/></symbol>
+    <symbol id="i-serveur" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="4" y="4" width="16" height="6.5" rx="2"/><rect x="4" y="13.5" width="16" height="6.5" rx="2"/><path d="M8 7.25h.01M8 16.75h.01M12 7.25h4M12 16.75h4"/></g></symbol>
+    <symbol id="i-api" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M8 7l-5 5 5 5M16 7l5 5-5 5M13.5 5l-3 14"/></symbol>
+    <symbol id="i-test" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M7 4.5v15l12-7.5z"/></symbol>
+    <symbol id="i-recharger" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 4.5v4h-4"/></symbol>
     <symbol id="i-crayon" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16zM13.5 6.5l4 4"/></symbol>
   </svg>
 
@@ -259,6 +264,17 @@
           <p class="reglage-note membre-seul" hidden>Vous pouvez lire les skills ; seul un admin peut les créer ou les modifier.</p>
         </section>
 
+        <section class="carte reglage admin-seul" id="sectionConnexions" aria-labelledby="titreConnexions">
+          <div class="carte-entete">
+            <div>
+              <h2 class="carte-titre" id="titreConnexions">Connexions</h2>
+              <p class="carte-aide">Les outils externes que l'agent peut utiliser : un serveur MCP ou une API avec une clé. Les jetons et les clés restent sur le serveur : ils ne sont plus jamais affichés en entier.</p>
+            </div>
+            <button class="bouton bouton-petit" type="button" id="boutonNouvelleConnexion"><svg class="icone"><use href="#i-plus"/></svg>Nouvelle connexion</button>
+          </div>
+          <ul class="liste-connexions" id="listeConnexions"></ul>
+        </section>
+
         <section class="carte reglage" id="sectionFichiers" aria-labelledby="titreFichiers">
           <h2 class="carte-titre" id="titreFichiers">Fichiers de l'agent</h2>
           <p class="carte-aide">Tout ce que l'agent a produit (dossier <code>work/</code>).</p>
@@ -458,6 +474,71 @@
           <button class="bouton-secondaire" type="button" data-fermer>Fermer</button>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- Fenêtre « Nouvelle connexion » -->
+  <div class="fenetre-fond" id="fenetreConnexion" hidden>
+    <div class="fenetre fenetre-connexion" role="dialog" aria-modal="true" aria-labelledby="titreConnexion">
+      <div class="fenetre-entete">
+        <h2 class="fenetre-titre" id="titreConnexion">Nouvelle connexion</h2>
+        <button class="bouton-icone" type="button" data-fermer aria-label="Fermer"><svg class="icone"><use href="#i-fermer"/></svg></button>
+      </div>
+      <form id="formConnexion" autocomplete="off" novalidate>
+        <fieldset class="types-connexion">
+          <legend class="champ-libelle">Type de connexion</legend>
+          <label class="type-connexion">
+            <input type="radio" name="typeConnexion" value="oauth" checked>
+            <span class="type-connexion-icone"><svg class="icone"><use href="#i-serveur"/></svg></span>
+            <span class="type-connexion-texte"><strong>Serveur MCP</strong><span>Connexion par compte (OAuth)</span></span>
+          </label>
+          <label class="type-connexion">
+            <input type="radio" name="typeConnexion" value="jeton">
+            <span class="type-connexion-icone"><svg class="icone"><use href="#i-cle"/></svg></span>
+            <span class="type-connexion-texte"><strong>Serveur MCP</strong><span>Avec un jeton</span></span>
+          </label>
+          <label class="type-connexion">
+            <input type="radio" name="typeConnexion" value="api">
+            <span class="type-connexion-icone"><svg class="icone"><use href="#i-api"/></svg></span>
+            <span class="type-connexion-texte"><strong>API</strong><span>Avec une clé</span></span>
+          </label>
+        </fieldset>
+        <div class="cx-champ">
+          <label class="champ-libelle" for="champCxNom">Nom</label>
+          <input class="champ" id="champCxNom" maxlength="40" placeholder="ex. notion" spellcheck="false" autocapitalize="off" required>
+          <span class="champ-aide">Minuscules, chiffres et tirets. L'agent verra ses outils sous ce nom.</span>
+        </div>
+        <div class="cx-champ">
+          <label class="champ-libelle" for="champCxUrl" id="libelleCxUrl">Adresse du serveur MCP</label>
+          <input class="champ" id="champCxUrl" type="url" inputmode="url" placeholder="https://mcp.exemple.com/mcp" spellcheck="false" autocapitalize="off" required>
+          <span class="champ-aide" id="aideCxUrl">Donnée dans la documentation de l'outil (souvent elle finit par /mcp).</span>
+        </div>
+        <div class="cx-deux" data-pour="jeton api">
+          <div class="cx-champ">
+            <label class="champ-libelle" for="champCxEntete">Nom de l'en-tête</label>
+            <input class="champ" id="champCxEntete" maxlength="64" placeholder="Authorization" spellcheck="false" autocapitalize="off">
+          </div>
+          <div class="cx-champ">
+            <label class="champ-libelle" for="champCxPrefixe">Préfixe <span class="facultatif">(facultatif)</span></label>
+            <input class="champ" id="champCxPrefixe" maxlength="30" placeholder="Bearer" spellcheck="false" autocapitalize="off">
+          </div>
+        </div>
+        <div class="cx-champ" data-pour="jeton api">
+          <label class="champ-libelle" for="champCxSecret" id="libelleCxSecret">Jeton</label>
+          <input class="champ" id="champCxSecret" type="password" autocomplete="new-password" spellcheck="false" autocapitalize="off" data-1p-ignore data-lpignore="true">
+          <span class="champ-aide" id="aideCxSecret">Il ne sera plus jamais affiché en entier (seulement ses 4 derniers caractères).</span>
+        </div>
+        <label class="cx-case" data-pour="api">
+          <input type="checkbox" id="champCxEcriture">
+          <span><strong>Autoriser l'écriture</strong><span class="champ-aide">Sans cette case, l'agent ne peut que lire (GET). Même autorisé, il demandera votre accord avant de créer, modifier ou supprimer.</span></span>
+        </label>
+        <p class="cx-note" data-pour="oauth">« Connecter » vous emmène sur le site de l'outil pour autoriser l'accès avec votre compte, puis vous ramène ici.</p>
+        <p class="message-erreur guide-erreur" id="erreurConnexion" role="alert"></p>
+        <div class="fenetre-actions">
+          <button class="bouton-secondaire" type="button" data-fermer>Annuler</button>
+          <button class="bouton" type="submit" id="boutonAjouterConnexion">Connecter</button>
+        </div>
+      </form>
     </div>
   </div>
 

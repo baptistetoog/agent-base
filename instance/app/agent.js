@@ -11,6 +11,7 @@ const fs = require('fs');
 const path = require('path');
 const espace = require('./espace');
 const skills = require('./skills');
+const connexions = require('./connexions');
 
 const RACINE = path.resolve(__dirname, '..');
 const DOSSIER_AGENT = path.join(RACINE, 'agent');
@@ -29,25 +30,45 @@ const MAX_MESSAGES_RENVOYES = 300;
 // Serveur MCP d'approbation (app/mcp-approbation.js) : Claude Code refuse toujours que l'agent écrive
 // dans son dossier .claude/ ; ce serveur dit « oui » uniquement pour agent/.claude/skills/<id>/SKILL.md
 // avec un en-tête valide, « non » à tout le reste. Les règles deny passent avant lui.
-const MCP_APPROBATION = JSON.stringify({
-  mcpServers: { approbation: { type: 'stdio', command: process.execPath, args: [path.join(__dirname, 'mcp-approbation.js')] } },
-});
+const SERVEUR_APPROBATION = { type: 'stdio', command: process.execPath, args: [path.join(__dirname, 'mcp-approbation.js')] };
 
-// Options communes à chaque lancement de l'agent.
-const OPTIONS_AGENT = [
-  '-p',
-  '--output-format', 'stream-json',
-  '--verbose',
-  '--include-partial-messages',
-  '--model', 'sonnet',
-  '--setting-sources', 'project',
-  '--strict-mcp-config',
-  '--mcp-config', MCP_APPROBATION,
-  '--permission-prompt-tool', 'mcp__approbation__approuver',
-  '--permission-mode', 'acceptEdits',
-  '--allowedTools', 'Read', 'Glob', 'Grep', 'WebSearch', 'WebFetch', 'Skill',
-  '--disallowedTools', 'Bash', 'Task', 'Agent', 'NotebookEdit',
-];
+// Options de chaque lancement de l'agent. La configuration MCP (approbation + connexions actives)
+// est écrite dans un fichier temporaire de data/ (600, supprimé après) : voir fichierMCP().
+function optionsAgent(fichierConfig, nomsConnexions) {
+  return [
+    '-p',
+    '--output-format', 'stream-json',
+    '--verbose',
+    '--include-partial-messages',
+    '--model', 'sonnet',
+    '--setting-sources', 'project',
+    '--strict-mcp-config',
+    '--mcp-config', fichierConfig,
+    '--permission-prompt-tool', 'mcp__approbation__approuver',
+    '--permission-mode', 'acceptEdits',
+    '--allowedTools', 'Read', 'Glob', 'Grep', 'WebSearch', 'WebFetch', 'Skill', ...nomsConnexions.map((n) => `mcp__${n}__*`),
+    '--disallowedTools', 'Bash', 'Task', 'Agent', 'NotebookEdit',
+  ];
+}
+
+// Fichier de configuration MCP temporaire : le serveur d'approbation + une entrée par connexion active
+// (programme + NOM seulement : les ponts relisent eux-mêmes les secrets dans data/, interdit à l'agent).
+function fichierMCP() {
+  const serveurs = { approbation: SERVEUR_APPROBATION };
+  let noms = [];
+  try {
+    const c = connexions.serveursMCP();
+    noms = Object.keys(c);
+    Object.assign(serveurs, c);
+  } catch (e) { console.error('Connexions illisibles :', e.message); }
+  const fichier = path.join(DATA, `mcp-${process.pid}-${crypto.randomBytes(6).toString('hex')}.json`);
+  fs.writeFileSync(fichier, JSON.stringify({ mcpServers: serveurs }), { mode: 0o600 });
+  return { fichier, noms };
+}
+function supprimerFichierMCP(f) { if (f) { try { fs.unlinkSync(f); } catch { /* déjà supprimé */ } } }
+
+// Fichiers temporaires oubliés (arrêt brutal du service) : supprimés au démarrage.
+try { for (const f of fs.readdirSync(DATA)) if (/^mcp-\d+-[0-9a-f]+\.json$/.test(f)) fs.unlinkSync(path.join(DATA, f)); } catch { /* rien */ }
 
 // Le service systemd charge aussi ce fichier au démarrage : on oublie cette copie,
 // la clé est relue dans le fichier à chaque lancement (et peut donc changer sans redémarrage).
@@ -430,10 +451,15 @@ const OUTILS = {
   Read: 'Lit un fichier', Glob: 'Cherche des fichiers', Grep: 'Cherche dans les fichiers',
   WebSearch: 'Cherche sur le web', WebFetch: 'Lit une page web', Skill: 'Applique un skill',
   Write: 'Écrit un fichier', Edit: 'Modifie un fichier', MultiEdit: 'Modifie un fichier',
-  TodoWrite: 'Organise son travail', LS: 'Regarde un dossier',
+  TodoWrite: 'Organise son travail', LS: 'Regarde un dossier', ToolSearch: 'Cherche ses outils',
 };
 
-function libelleOutil(nom) { return OUTILS[nom] || 'Utilise un outil'; }
+function libelleOutil(nom) {
+  if (OUTILS[nom]) return OUTILS[nom];
+  const m = String(nom || '').match(/^mcp__([a-z0-9-]+)__/);
+  if (m && m[1] !== 'approbation') return `Utilise ${m[1]}`;
+  return 'Utilise un outil';
+}
 
 function phraseOutil(nom, entree) {
   const e = entree || {};
@@ -451,7 +477,13 @@ function phraseOutil(nom, entree) {
     }
     case 'Skill': return (e.skill || e.command) ? `J'applique le skill ${court(e.skill || e.command, 30)}…` : 'J\'applique un skill…';
     case 'TodoWrite': return 'Je fais ma liste…';
-    default: return 'Je travaille…';
+    case 'ToolSearch': return 'Je regarde quels outils j\'ai…';
+    default: {
+      const m = String(nom || '').match(/^mcp__([a-z0-9-]+)__(.+)$/);
+      if (m && m[2] === 'lire_api' && e.chemin) return `Je consulte ${m[1]} (${court(e.chemin, 34)})…`;
+      if (m) return `J'utilise ${m[1]} (${court(m[2], 30)})…`;
+      return 'Je travaille…';
+    }
   }
 }
 
@@ -545,12 +577,20 @@ function lancer(travail, relance, idExistant) {
   }
   if (!jeton) { c.raison = 'sans-cle'; return terminer(c); }
 
-  const args = [...OPTIONS_AGENT];
+  let mcp;
+  try { mcp = fichierMCP(); } catch (e) {
+    console.error('Configuration MCP impossible :', e.message);
+    c.raison = 'technique';
+    return terminer(c);
+  }
+  c.fichierMCP = mcp.fichier;
+  const args = optionsAgent(mcp.fichier, mcp.noms);
   if (etat.sessionId) args.push('--resume', etat.sessionId);
   try {
     c.proc = spawn(CLAUDE, args, { cwd: DOSSIER_AGENT, env: environnement(jeton), stdio: ['pipe', 'pipe', 'pipe'], detached: true });
   } catch (e) {
     console.error('Impossible de lancer Claude :', masquer(e.message));
+    supprimerFichierMCP(c.fichierMCP);
     c.raison = 'technique';
     return terminer(c);
   }
@@ -571,6 +611,7 @@ function lancer(travail, relance, idExistant) {
   c.proc.on('error', (e) => { console.error('Claude :', masquer(e.message)); });
   c.proc.on('close', (code) => {
     clearTimeout(c.minuterie);
+    supprimerFichierMCP(c.fichierMCP);
     if (c.tampon.trim()) traiterLigne(c, c.tampon);
     // La conversation à reprendre n'existe plus : on repart d'une conversation neuve, une seule fois.
     if (!relance && !c.raison && etat.sessionId && !c.resultat && !c.texte

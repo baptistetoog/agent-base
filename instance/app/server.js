@@ -9,6 +9,7 @@ const path = require('path');
 const agent = require('./agent');
 const espace = require('./espace');
 const skills = require('./skills');
+const connexions = require('./connexions');
 
 process.umask(0o077); // tout fichier créé par le serveur n'est lisible que par son propriétaire
 
@@ -247,10 +248,11 @@ agent.init({ diffuser, nomAgent: espace.identite().nomAgent });
 function etatSysteme() {
   const claude = agent.etatClaude();
   const contexte = espace.missionRemplie(); // « Sa mission » de CONTEXTE.md n'est plus « À compléter »
+  const nbConnexions = connexions.nombreQuiMarchent(); // connexions dont le dernier test a réussi
   const etapes = [
     { id: 'claude', titre: 'Connecter Claude', disponible: true, fait: claude.connecte },
     { id: 'contexte', titre: 'Donner son contexte à l\'agent', disponible: true, fait: contexte },
-    { id: 'outil', titre: 'Brancher un premier outil (MCP ou clé API)', disponible: false, fait: false },
+    { id: 'outil', titre: 'Brancher un premier outil (MCP ou clé API)', disponible: true, fait: nbConnexions > 0 },
     { id: 'mission', titre: 'Lui confier une première mission automatique', disponible: false, fait: false },
   ];
   return {
@@ -260,7 +262,10 @@ function etatSysteme() {
     voyants: {
       claude: { disponible: true, ok: claude.connecte, texte: claude.connecte ? 'Connecté' : 'Non connecté' },
       contexte: { disponible: true, ok: contexte, texte: contexte ? 'Mission définie' : 'Mission à compléter' },
-      connexions: { disponible: false, ok: false, texte: 'Bientôt disponible' },
+      connexions: {
+        disponible: true, ok: nbConnexions > 0,
+        texte: nbConnexions === 0 ? 'Aucune connexion qui marche' : (nbConnexions === 1 ? '1 connexion qui marche' : `${nbConnexions} connexions qui marchent`),
+      },
       automatisation: { disponible: false, ok: false, texte: 'Bientôt disponible' },
     },
   };
@@ -386,6 +391,8 @@ async function traiter(req, res) {
 
   // Tout le reste exige d'être connecté.
   const session = utilisateurConnecte(req);
+  // Retour d'une autorisation OAuth sans session : on renvoie vers la connexion (le state reste valable 10 min).
+  if (!session && chemin === '/api/oauth/retour') return rediriger(res, '/connexion.html');
   if (!session) {
     if (chemin.startsWith('/api/')) return json(res, 401, { erreur: 'Non connecté', connexion: '/connexion.html' });
     return rediriger(res, '/connexion.html');
@@ -545,6 +552,42 @@ async function traiter(req, res) {
     const { code, ...reste } = r;
     if (r.ok) { console.log(`Skill supprimé par ${session.compte.email} : ${corps.id}`); diffuser('skills', {}); }
     return json(res, code, reste);
+  }
+
+  // ----- Connexions (outils externes) : réservées aux admins -----
+  // Retour d'une autorisation OAuth (navigation du navigateur, donc GET) : échange du code côté serveur,
+  // puis retour au bureau. Les jetons ne sont jamais renvoyés au navigateur.
+  if (chemin === '/api/oauth/retour' && methode === 'GET') {
+    if (!estAdmin) return rediriger(res, '/?oauth=erreur&message=' + encodeURIComponent('Seul un admin peut connecter un outil.'));
+    const r = await connexions.retourOAuth(url.searchParams, session.cle);
+    const q = new URLSearchParams({ oauth: r.ok ? 'ok' : 'erreur' });
+    if (r.nom) q.set('nom', r.nom);
+    if (!r.ok) q.set('message', r.erreur);
+    diffuser('connexions', {});
+    if (r.ok) {
+      // Test tout de suite (initialize + tools/list) : la mise en route et le voyant suivent.
+      connexions.tester(r.nom).then(() => diffuser('connexions', {})).catch(() => {});
+    }
+    return rediriger(res, '/?' + q.toString());
+  }
+  if (chemin.startsWith('/api/connexions')) {
+    if (!estAdmin) return json(res, 403, { erreur: 'Seul un admin peut gérer les connexions.' });
+    if (chemin === '/api/connexions' && methode === 'GET') return json(res, 200, { connexions: connexions.lister(), retour: connexions.RETOUR });
+    if (methode !== 'POST') return json(res, 405, { erreur: 'Méthode non autorisée' });
+    let corps;
+    try { corps = await lireCorps(req, 16 * 1024); } catch { return json(res, 413, { erreur: 'Requête trop grosse' }); }
+    let r;
+    if (chemin === '/api/connexions') r = await connexions.creer(corps, session.compte, session.cle);
+    else if (chemin === '/api/connexions/tester') { const t = await connexions.tester(corps.nom); r = { code: 200, ...t }; }
+    else if (chemin === '/api/connexions/reconnecter') r = await connexions.reconnecter(corps.nom, session.cle);
+    else if (chemin === '/api/connexions/ecriture') r = connexions.changerEcriture(corps.nom, corps.ecriture);
+    else if (chemin === '/api/connexions/supprimer') {
+      r = connexions.supprimer(corps.nom);
+      if (r.ok) console.log(`Connexion ${String(corps.nom)} supprimée par ${session.compte.email}.`);
+    } else return json(res, 404, { erreur: 'Introuvable' });
+    const { code, ...reste } = r;
+    diffuser('connexions', {});
+    return json(res, code || 200, reste);
   }
 
   if (chemin === '/api/message' && methode === 'POST') {

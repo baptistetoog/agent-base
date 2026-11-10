@@ -254,6 +254,18 @@ function rendreMiseEnRoute(mer) {
       b.addEventListener('click', () => allerA('contexte'));
       li.append(b);
       if (!action) action = { texte: estAdmin() ? 'Décrivez votre structure et la mission de l\'agent.' : 'Un admin doit décrire la mission de l\'agent.', bouton: 'Ouvrir', clic: () => allerA('contexte') };
+    } else if (etape.id === 'outil') {
+      if (estAdmin()) {
+        const b = el('button', 'bouton bouton-petit');
+        b.append(el('span', 'long', 'Brancher un outil'), el('span', 'court', 'Brancher'));
+        b.type = 'button';
+        b.addEventListener('click', () => allerA('connexions'));
+        li.append(b);
+        if (!action) action = { texte: 'Branchez un premier outil (MCP ou clé API) à l\'agent.', bouton: 'Brancher', clic: () => allerA('connexions') };
+      } else {
+        li.append(el('span', 'pastille attention', 'À faire par un admin'));
+        if (!action) action = { texte: 'Un admin doit brancher un premier outil.' };
+      }
     } else if (etape.id === 'claude') {
       if (estAdmin()) {
         const b = el('button', 'bouton bouton-petit');
@@ -926,7 +938,8 @@ async function garderProposition() {
 // Aller à une section des Réglages (depuis la mise en route ou le menu).
 function allerA(cible) {
   choisirOnglet('reglages');
-  const section = cible === 'fichiers' ? $('#sectionFichiers') : (cible === 'skills' ? $('#sectionSkills') : $('#sectionContexte'));
+  const sections = { fichiers: '#sectionFichiers', skills: '#sectionSkills', connexions: '#sectionConnexions' };
+  const section = $(sections[cible] || '#sectionContexte');
   if (cible === 'contexte') choisirSous('contexte');
   // On fait défiler la colonne des Réglages seulement (jamais la page entière).
   requestAnimationFrame(() => {
@@ -1159,6 +1172,247 @@ function clavierMenuSkills(e) {
   return false;
 }
 
+// ---------- Connexions ----------
+// Les outils externes branchés à l'agent (admin seulement) : serveur MCP par compte (OAuth),
+// serveur MCP avec un jeton, API avec une clé. Le navigateur ne voit jamais un secret entier.
+
+const cx = { liste: [], resultats: {}, enTest: new Set(), type: 'oauth' };
+const STATUTS_CX = {
+  connecte: ['ok', 'Connecté'],
+  'a-reconnecter': ['attention', 'À reconnecter'],
+  erreur: ['erreur', 'Erreur'],
+};
+const TYPES_CX = { oauth: 'Serveur MCP · par compte', jeton: 'Serveur MCP · jeton', api: 'API · clé' };
+const ICONES_CX = { oauth: 'i-serveur', jeton: 'i-cle', api: 'i-api' };
+
+function hote(url) { try { const u = new URL(url); return u.host + (u.pathname !== '/' ? u.pathname.replace(/\/$/, '') : ''); } catch { return url; } }
+
+async function chargerConnexions() {
+  if (!estAdmin()) return;
+  try {
+    const d = await api('/api/connexions');
+    cx.liste = d.connexions || [];
+    rendreConnexions();
+  } catch { /* rien */ }
+}
+
+function icone(id) {
+  const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  s.setAttribute('class', 'icone');
+  s.setAttribute('aria-hidden', 'true');
+  const u = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+  u.setAttribute('href', '#' + id);
+  s.append(u);
+  return s;
+}
+
+function boutonCx(classe, id, texte, clic) {
+  const b = el('button', classe);
+  b.type = 'button';
+  b.append(icone(id), el('span', '', texte));
+  b.addEventListener('click', clic);
+  return b;
+}
+
+function rendreConnexions() {
+  const ul = $('#listeConnexions');
+  ul.replaceChildren();
+  if (!cx.liste.length) {
+    listeVide(ul, 'Aucune connexion pour l\'instant', 'Branchez un premier outil avec « Nouvelle connexion » : un serveur MCP (Notion, votre CRM…) ou une API avec une clé.');
+    return;
+  }
+  for (const c of cx.liste) {
+    const li = el('li', 'cx');
+    const haut = el('div', 'cx-haut');
+    const ic = el('span', 'cx-icone ' + c.type);
+    ic.append(icone(ICONES_CX[c.type] || 'i-prise'));
+    const infos = el('div', 'cx-infos');
+    const l1 = el('div', 'cx-ligne');
+    const [classe, texte] = STATUTS_CX[c.statut] || STATUTS_CX.erreur;
+    const enTest = cx.enTest.has(c.nom);
+    l1.append(el('span', 'cx-nom', c.nom), el('span', 'pastille ' + (enTest ? 'travail' : classe), enTest ? 'Test…' : texte));
+    const meta = el('span', 'cx-meta');
+    meta.append(el('span', 'cx-type', TYPES_CX[c.type] || c.type), el('span', 'cx-url', hote(c.url)));
+    meta.title = c.url;
+    infos.append(l1, meta);
+    const details = [];
+    if (c.secretFin) details.push(`${c.entete} : ${c.prefixe ? c.prefixe + ' ' : ''}${c.secretFin}`);
+    if (c.type === 'oauth') details.push(c.jetonFin ? 'Autorisé par compte' : 'Autorisation à faire');
+    if (details.length) infos.append(el('span', 'cx-detail', details.join(' · ')));
+    haut.append(ic, infos);
+    li.append(haut);
+
+    if (c.type === 'api') {
+      const lab = el('label', 'cx-interrupteur');
+      const caseE = el('input');
+      caseE.type = 'checkbox';
+      caseE.checked = Boolean(c.ecriture);
+      caseE.addEventListener('change', () => changerEcriture(c.nom, caseE.checked, caseE));
+      lab.append(caseE, el('span', 'cx-interrupteur-piste'), el('span', '', 'Autoriser l\'écriture'));
+      li.append(lab);
+    }
+
+    // Résultat du dernier test (ou outils connus).
+    const r = cx.resultats[c.nom];
+    const zone = el('div', 'cx-resultat');
+    if (r && r.ok) {
+      zone.classList.add('ok');
+      zone.append(el('p', 'cx-resultat-titre', r.outils.length ? `Test réussi : ${r.outils.length} outil${r.outils.length > 1 ? 's' : ''} disponible${r.outils.length > 1 ? 's' : ''}` : 'Test réussi, mais le serveur ne propose aucun outil.'));
+      if (r.outils.length) {
+        const liste = el('ul', 'cx-outils');
+        for (const o of r.outils) {
+          const item = el('li', 'cx-outil');
+          item.append(el('code', '', o.nom));
+          if (o.description) { item.append(el('span', '', o.description)); item.title = o.description; }
+          liste.append(item);
+        }
+        zone.append(liste);
+      }
+    } else if ((r && !r.ok) || (c.statut !== 'connecte' && c.erreur)) {
+      zone.classList.add(c.statut === 'a-reconnecter' ? 'attention' : 'erreur');
+      zone.append(el('p', 'cx-resultat-titre', (r && r.erreur) || c.erreur));
+    } else if (c.outils && c.outils.length) {
+      const p = el('p', 'cx-resultat-court');
+      p.append(el('span', '', c.outils.length > 1 ? 'Outils :' : 'Outil :'));
+      for (const n of c.outils) p.append(el('code', '', n));
+      zone.append(p);
+    }
+    if (zone.childElementCount) li.append(zone);
+
+    const actions = el('div', 'cx-actions');
+    const t = boutonCx('bouton-secondaire bouton-petit', 'i-test', enTest ? 'Test en cours…' : 'Tester', () => testerConnexion(c.nom));
+    t.disabled = enTest;
+    actions.append(t);
+    if (c.type === 'oauth') actions.append(boutonCx(c.statut === 'connecte' ? 'bouton-secondaire bouton-petit' : 'bouton bouton-petit', 'i-recharger', 'Reconnecter', () => reconnecterConnexion(c.nom)));
+    const x = boutonCx('bouton-fantome bouton-petit bouton-danger cx-supprimer', 'i-poubelle', 'Supprimer', () => supprimerConnexion(c.nom));
+    actions.append(x);
+    li.append(actions);
+    ul.append(li);
+  }
+}
+
+async function testerConnexion(nom) {
+  cx.enTest.add(nom);
+  delete cx.resultats[nom];
+  rendreConnexions();
+  try {
+    const r = await api('/api/connexions/tester', { corps: { nom } });
+    cx.resultats[nom] = r;
+    if (r.ok) toast(`« ${nom} » répond : ${r.outils.length} outil${r.outils.length > 1 ? 's' : ''}.`, 'ok');
+    else toast(`« ${nom} » : le test a échoué.`, 'erreur');
+  } catch (e) { cx.resultats[nom] = { ok: false, erreur: e.message }; }
+  cx.enTest.delete(nom);
+  await chargerConnexions();
+  chargerEtatPlusTard();
+}
+
+async function reconnecterConnexion(nom) {
+  try {
+    const r = await api('/api/connexions/reconnecter', { corps: { nom } });
+    window.location.href = r.lien; // le site de l'outil, puis retour sur /api/oauth/retour
+  } catch (e) { toast(e.message, 'erreur'); }
+}
+
+async function supprimerConnexion(nom) {
+  const ok = await confirmer('Supprimer cette connexion ?', `« ${nom} » sera débranchée : l'agent ne pourra plus s'en servir et son jeton ou sa clé sera effacé du serveur.`, 'Supprimer');
+  if (!ok) return;
+  try {
+    await api('/api/connexions/supprimer', { corps: { nom } });
+    delete cx.resultats[nom];
+    toast('Connexion supprimée.', 'ok');
+    await chargerConnexions();
+    chargerEtatPlusTard();
+  } catch (e) { toast(e.message, 'erreur'); }
+}
+
+async function changerEcriture(nom, ecriture, caseE) {
+  caseE.disabled = true;
+  try {
+    await api('/api/connexions/ecriture', { corps: { nom, ecriture } });
+    toast(ecriture ? `« ${nom} » : écriture autorisée.` : `« ${nom} » : lecture seule.`, 'ok');
+    delete cx.resultats[nom];
+    await chargerConnexions();
+  } catch (e) { toast(e.message, 'erreur'); caseE.checked = !ecriture; }
+  caseE.disabled = false;
+}
+
+// ----- Fenêtre « Nouvelle connexion » -----
+
+function typeConnexion(type) {
+  cx.type = type;
+  $$('#formConnexion [data-pour]').forEach((e) => { e.hidden = !e.dataset.pour.split(' ').includes(type); });
+  const api_ = type === 'api';
+  $('#libelleCxUrl').textContent = api_ ? 'URL de base de l\'API' : 'Adresse du serveur MCP';
+  $('#champCxUrl').placeholder = api_ ? 'https://api.exemple.com/v1/' : 'https://mcp.exemple.com/mcp';
+  $('#aideCxUrl').textContent = api_ ? 'L\'agent ne pourra appeler que des adresses sous celle-ci.' : 'Donnée dans la documentation de l\'outil (souvent elle finit par /mcp).';
+  $('#libelleCxSecret').textContent = api_ ? 'Clé' : 'Jeton';
+  $('#aideCxSecret').textContent = api_ ? 'Elle ne sera plus jamais affichée en entier (seulement ses 4 derniers caractères).' : 'Il ne sera plus jamais affiché en entier (seulement ses 4 derniers caractères).';
+  $('#champCxEntete').placeholder = api_ ? 'Authorization ou X-API-Key' : 'Authorization';
+  $('#boutonAjouterConnexion').textContent = type === 'oauth' ? 'Connecter' : 'Ajouter et tester';
+  $('#erreurConnexion').textContent = '';
+}
+
+function ouvrirNouvelleConnexion() {
+  const f = $('#formConnexion');
+  f.reset();
+  $('#champCxEntete').value = 'Authorization';
+  $('#champCxPrefixe').value = 'Bearer';
+  typeConnexion('oauth');
+  ouvrirFenetre('fenetreConnexion');
+}
+
+async function ajouterConnexion(ev) {
+  ev.preventDefault();
+  const erreur = $('#erreurConnexion');
+  erreur.textContent = '';
+  const nom = idSkill($('#champCxNom').value).slice(0, 40);
+  $('#champCxNom').value = nom;
+  if (!nom) { erreur.textContent = 'Donnez un nom à la connexion.'; $('#champCxNom').focus(); return; }
+  const url = $('#champCxUrl').value.trim();
+  if (!/^https:\/\//i.test(url)) { erreur.textContent = 'L\'adresse doit commencer par https://'; $('#champCxUrl').focus(); return; }
+  const corps = { type: cx.type, nom, url };
+  if (cx.type !== 'oauth') {
+    corps.entete = $('#champCxEntete').value.trim();
+    corps.prefixe = $('#champCxPrefixe').value.trim();
+    corps.secret = $('#champCxSecret').value;
+    if (!corps.entete) { erreur.textContent = 'Donnez le nom de l\'en-tête (ex. Authorization ou X-API-Key).'; $('#champCxEntete').focus(); return; }
+    if (!corps.secret.trim()) { erreur.textContent = cx.type === 'api' ? 'Collez la clé.' : 'Collez le jeton.'; $('#champCxSecret').focus(); return; }
+    if (cx.type === 'api') corps.ecriture = $('#champCxEcriture').checked;
+  }
+  const b = $('#boutonAjouterConnexion');
+  b.disabled = true;
+  const libelle = b.textContent;
+  b.textContent = cx.type === 'oauth' ? 'Recherche du serveur…' : 'Test en cours…';
+  try {
+    const r = await api('/api/connexions', { corps });
+    $('#champCxSecret').value = '';
+    if (cx.type === 'oauth') { window.location.href = r.lien; return; }
+    fermerFenetre('fenetreConnexion');
+    if (r.test) cx.resultats[nom] = r.test;
+    toast(r.test && r.test.ok ? `« ${nom} » ajoutée et testée.` : `« ${nom} » ajoutée, mais le test a échoué.`, r.test && r.test.ok ? 'ok' : 'attention');
+    await chargerConnexions();
+    chargerEtatPlusTard();
+  } catch (e) {
+    erreur.textContent = e.message;
+    const champ = { nom: '#champCxNom', url: '#champCxUrl', entete: '#champCxEntete', prefixe: '#champCxPrefixe', secret: '#champCxSecret' }[e.donnees && e.donnees.champ];
+    if (champ) $(champ).focus();
+  } finally {
+    b.disabled = false;
+    b.textContent = libelle;
+  }
+}
+
+// Retour d'une autorisation OAuth : /?oauth=ok|erreur&nom=…&message=…
+function retourOAuth() {
+  const q = new URLSearchParams(window.location.search);
+  if (!q.has('oauth')) return;
+  const nom = q.get('nom');
+  if (q.get('oauth') === 'ok') toast(`« ${nom} » : Connecté.`, 'ok');
+  else toast(q.get('message') || 'La connexion n\'a pas abouti.', 'erreur');
+  history.replaceState(null, '', '/');
+  if (estAdmin()) { allerA('connexions'); if (q.get('oauth') === 'ok' && nom) { cx.enTest.add(nom); setTimeout(() => { cx.enTest.delete(nom); chargerConnexions(); }, 8000); } }
+}
+
 // ---------- Temps réel ----------
 
 function ouvrirFlux() {
@@ -1207,6 +1461,7 @@ function ouvrirFlux() {
   });
   flux.addEventListener('marque', (e) => changerMarque(lire(e)));
   flux.addEventListener('skills', () => chargerSkills());
+  flux.addEventListener('connexions', () => { if (!cx.enTest.size) chargerConnexions(); chargerEtatPlusTard(); });
   flux.addEventListener('contexte', () => { chargerContexte(); chargerEtatPlusTard(); });
   flux.addEventListener('file', (e) => {
     const d = lire(e);
@@ -1245,7 +1500,7 @@ function choisirOnglet(nom) {
   $('#vueDiscussion').hidden = nom !== 'discussion';
   $('#vueReglages').hidden = nom !== 'reglages';
   document.body.classList.toggle('sur-reglages', nom === 'reglages');
-  if (nom === 'reglages') { chargerEtat(); chargerContexte(); chargerFichiers(); chargerSkills(); if (ctx.sous === 'documents') chargerDocuments(); }
+  if (nom === 'reglages') { chargerEtat(); chargerContexte(); chargerFichiers(); chargerSkills(); chargerConnexions(); if (ctx.sous === 'documents') chargerDocuments(); }
   if (nom !== 'discussion') basculerMenuSkills(false);
   if (nom === 'discussion') requestAnimationFrame(() => defiler(true));
 }
@@ -1519,6 +1774,11 @@ function brancherInterface() {
   $('#skillRetirer').addEventListener('click', () => { choisirSkill(null); zone.focus(); });
   document.addEventListener('click', (e) => { if (!$('#menuSkills').hidden && !e.target.closest('#menuSkills, #boutonSlash')) basculerMenuSkills(false); });
   $('#boutonNouveauSkill').addEventListener('click', () => ouvrirSkill(null));
+  // Connexions
+  $('#boutonNouvelleConnexion').addEventListener('click', ouvrirNouvelleConnexion);
+  $('#formConnexion').addEventListener('submit', ajouterConnexion);
+  $$('input[name="typeConnexion"]').forEach((r) => r.addEventListener('change', () => { if (r.checked) typeConnexion(r.value); }));
+  $('#champCxNom').addEventListener('blur', () => { const id = idSkill($('#champCxNom').value).slice(0, 40); if (id) $('#champCxNom').value = id; });
   $('#formSkill').addEventListener('submit', enregistrerSkill);
   $('#champSkillNom').addEventListener('input', majAideNom);
   $('#champSkillDescription').addEventListener('input', ajusterDescription);
@@ -1624,6 +1884,7 @@ async function demarrer() {
   creerScene();
   await Promise.all([chargerEtat(), chargerDiscussion(), chargerSkills()]);
   ouvrirFlux();
+  retourOAuth();
 }
 
 demarrer();
