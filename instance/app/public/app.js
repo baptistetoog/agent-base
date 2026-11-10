@@ -22,6 +22,8 @@ const app = {
   enCours: null,       // { id, ligne, md, outils, texte }
   bureau: null,
   fluxDejaOuvert: false,
+  mode: 'propose',
+  validations: { liste: [], enAttente: 0, charge: false },
 };
 
 // ---------- Outils ----------
@@ -141,6 +143,7 @@ function creerScene() {
       badge: typeof m.badge === 'string' ? m.badge : PERSONNAGE.badge,
     });
     appliquerStatut(app.statut);
+    alerteScene();
   } catch (e) { console.warn('Bureau 3D indisponible :', e); }
 }
 
@@ -211,6 +214,8 @@ async function chargerEtat() {
     appliquerStatut(e.agent);
     rendreMiseEnRoute(e.miseEnRoute);
     rendreVoyants(e.voyants);
+    if (e.mode) rendreMode(e.mode);
+    if (e.validations) majCompteurValidations(e.validations.enAttente);
   } catch (err) { /* le flux réessaiera */ }
 }
 
@@ -391,6 +396,15 @@ function elementMessage(m) {
       tag.innerHTML = '<svg class="icone" aria-hidden="true"><use href="#i-skill"/></svg>';
       tag.append(el('span', '', m.skill));
       bulle.append(tag);
+    }
+    if (m.decision) {
+      const tag = el('span', 'etiquette-skill etiquette-decision ' + (m.decision.type === 'validee' ? 'validee' : 'refusee'));
+      tag.innerHTML = `<svg class="icone" aria-hidden="true"><use href="#${m.decision.type === 'validee' ? 'i-coche' : 'i-fermer'}"/></svg>`;
+      tag.append(el('span', '', `Validation n°${m.decision.n} ${m.decision.type === 'validee' ? 'accordée' : 'refusée'}`));
+      bulle.classList.add('bulle-decision');
+      bulle.append(tag);
+      // On n'affiche que la partie utile pour l'équipe (les consignes destinées à l'agent sont masquées).
+      texte = texte.replace(/\s*Ne fais pas cette action\.[\s\S]*$/, '').replace(/\.?\s*Puis confirme en une phrase\.\s*$/, '').replace(/ Exécute exactement cette action, rien d'autre :\s*/, '\n');
     }
     if (m.fichier) texte = texte.replace(/\n*Fichier joint : documents\/[^\n]*$/, '').trim();
     if (texte) bulle.append(el('span', 'bulle-texte', texte));
@@ -1252,32 +1266,19 @@ function rendreConnexions() {
       li.append(lab);
     }
 
-    // Résultat du dernier test (ou outils connus).
+    // Résultat du dernier test (ou outils connus), puis le tri : chaque outil avec sa case « Action (à valider) ».
     const r = cx.resultats[c.nom];
     const zone = el('div', 'cx-resultat');
+    const tri = c.outilsTri || [];
     if (r && r.ok) {
       zone.classList.add('ok');
       zone.append(el('p', 'cx-resultat-titre', r.outils.length ? `Test réussi : ${r.outils.length} outil${r.outils.length > 1 ? 's' : ''} disponible${r.outils.length > 1 ? 's' : ''}` : 'Test réussi, mais le serveur ne propose aucun outil.'));
-      if (r.outils.length) {
-        const liste = el('ul', 'cx-outils');
-        for (const o of r.outils) {
-          const item = el('li', 'cx-outil');
-          item.append(el('code', '', o.nom));
-          if (o.description) { item.append(el('span', '', o.description)); item.title = o.description; }
-          liste.append(item);
-        }
-        zone.append(liste);
-      }
     } else if ((r && !r.ok) || (c.statut !== 'connecte' && c.erreur)) {
       zone.classList.add(c.statut === 'a-reconnecter' ? 'attention' : 'erreur');
       zone.append(el('p', 'cx-resultat-titre', (r && r.erreur) || c.erreur));
-    } else if (c.outils && c.outils.length) {
-      const p = el('p', 'cx-resultat-court');
-      p.append(el('span', '', c.outils.length > 1 ? 'Outils :' : 'Outil :'));
-      for (const n of c.outils) p.append(el('code', '', n));
-      zone.append(p);
     }
     if (zone.childElementCount) li.append(zone);
+    if (tri.length) li.append(blocTri(c, tri));
 
     const actions = el('div', 'cx-actions');
     const t = boutonCx('bouton-secondaire bouton-petit', 'i-test', enTest ? 'Test en cours…' : 'Tester', () => testerConnexion(c.nom));
@@ -1289,6 +1290,43 @@ function rendreConnexions() {
     li.append(actions);
     ul.append(li);
   }
+}
+
+// Le tri des outils : lecture (libre) ou action (à valider en mode « Propose »).
+function blocTri(c, tri) {
+  const bloc = el('div', 'cx-tri');
+  const nbActions = tri.filter((o) => o.action).length;
+  const tete = el('div', 'cx-tri-tete');
+  tete.append(el('span', 'cx-tri-titre', `Outils (${tri.length})`), el('span', 'cx-tri-resume', nbActions ? `${nbActions} action${nbActions > 1 ? 's' : ''} à valider` : 'Lecture seule'));
+  bloc.append(tete);
+  const ul = el('ul', 'cx-tri-liste');
+  for (const o of tri) {
+    const li = el('li', 'cx-tri-outil' + (o.action ? ' action' : ''));
+    const textes = el('div', 'cx-tri-textes');
+    textes.append(el('code', '', o.nom));
+    if (o.description) { const d = el('span', 'cx-tri-desc', o.description); d.title = o.description; textes.append(d); }
+    const lab = el('label', 'cx-tri-case' + (o.verrouille ? ' verrouille' : ''));
+    const cb = el('input');
+    cb.type = 'checkbox';
+    cb.checked = o.action;
+    cb.disabled = o.verrouille;
+    if (o.verrouille) lab.title = o.action ? 'Toujours une action à valider' : 'Toujours libre (lecture)';
+    cb.addEventListener('change', () => changerAction(c.nom, o.nom, cb.checked, cb));
+    lab.append(cb, el('span', '', 'Action (à valider)'));
+    li.append(textes, lab);
+    ul.append(li);
+  }
+  bloc.append(ul);
+  return bloc;
+}
+
+async function changerAction(nom, outil, action, cb) {
+  cb.disabled = true;
+  try {
+    await api('/api/connexions/actions', { corps: { nom, outil, action } });
+    toast(action ? `${outil} : action à valider.` : `${outil} : libre.`, 'ok');
+    await chargerConnexions();
+  } catch (e) { toast(e.message, 'erreur'); cb.checked = !action; cb.disabled = false; }
 }
 
 async function testerConnexion(nom) {
@@ -1413,6 +1451,190 @@ function retourOAuth() {
   if (estAdmin()) { allerA('connexions'); if (q.get('oauth') === 'ok' && nom) { cx.enTest.add(nom); setTimeout(() => { cx.enTest.delete(nom); chargerConnexions(); }, 8000); } }
 }
 
+// ---------- Mode de l'agent : « Propose » / « Agit seul » ----------
+
+function rendreMode(m) {
+  app.mode = m === 'seul' ? 'seul' : 'propose';
+  const zone = $('#modeAgent');
+  zone.classList.toggle('seul', app.mode === 'seul');
+  zone.classList.toggle('lecture', !estAdmin());
+  $$('.mode-choix', zone).forEach((b) => {
+    const actif = b.dataset.mode === app.mode;
+    b.setAttribute('aria-checked', String(actif));
+    b.tabIndex = actif ? 0 : -1;
+    b.disabled = !estAdmin() && !actif;
+  });
+  zone.title = estAdmin() ? '' : 'Seul un admin peut changer le mode de l\'agent.';
+}
+
+async function changerMode(m) {
+  if (!estAdmin() || m === app.mode) return;
+  if (m === 'seul') {
+    const ok = await confirmer('Laisser l\'agent agir seul ?', 'Il pourra envoyer, publier, créer, modifier ou supprimer dans les outils branchés sans vous demander. Vous pourrez revenir à « Propose » à tout moment.', 'Agit seul');
+    if (!ok) return;
+  }
+  const avant = app.mode;
+  rendreMode(m);
+  try {
+    const r = await api('/api/reglages/mode', { corps: { mode: m } });
+    rendreMode(r.reglages.mode);
+    toast(m === 'seul' ? 'L\'agent agit seul.' : 'L\'agent propose : ses actions passent par « À valider ».', 'ok');
+  } catch (e) { rendreMode(avant); toast(e.message, 'erreur'); }
+}
+
+// ---------- Cartes « À valider » (admins) ----------
+
+const STATUTS_VALIDATION = {
+  'en-attente': ['attention', 'En attente'],
+  validee: ['travail', 'En cours d\'exécution'],
+  executee: ['ok', 'Exécutée'],
+  echec: ['erreur', 'Échec'],
+  refusee: ['erreur', 'Refusée'],
+};
+const brouillons = new Map(); // n -> contenu corrigé en cours de saisie (survit aux rechargements de liste)
+
+function alerteScene() {
+  if (!app.bureau) return;
+  const n = estAdmin() ? app.validations.enAttente : 0;
+  if (n > 0) app.bureau.statut('alerte', n > 1 ? `${n} actions à valider` : '1 action à valider');
+  else app.bureau.statut('alerte', false);
+}
+
+function majCompteurValidations(n) {
+  n = Number(n) || 0;
+  const change = n !== app.validations.enAttente;
+  app.validations.enAttente = n;
+  $$('[data-compteur-validations]').forEach((c) => { c.hidden = !n; c.textContent = n > 99 ? '99+' : String(n); });
+  alerteScene();
+  return change;
+}
+
+async function chargerValidations() {
+  if (!estAdmin()) return;
+  try {
+    const d = await api('/api/validations');
+    app.validations.liste = d.validations || [];
+    app.validations.charge = true;
+    majCompteurValidations(d.enAttente);
+    rendreValidations();
+  } catch { /* rien */ }
+}
+
+function quandCourt(iso) {
+  const d = new Date(iso);
+  if (!iso || Number.isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }) + ' ' + d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+}
+
+function carteValidation(v) {
+  const enAttente = v.statut === 'en-attente';
+  const li = el('li', 'validation carte ' + v.statut);
+  li.dataset.n = v.n;
+  const haut = el('div', 'validation-haut');
+  const [classe, texte] = STATUTS_VALIDATION[v.statut] || STATUTS_VALIDATION['en-attente'];
+  haut.append(el('span', 'validation-numero', `n°${v.n}`), el('span', 'pastille ' + classe, texte));
+  li.append(haut, el('h3', 'validation-titre', v.titre));
+  li.append(el('p', 'validation-quoi', v.ceQueJeVaisFaire));
+  const outil = el('p', 'validation-outil');
+  outil.append(el('span', '', 'Outil prévu'), el('code', '', v.outilPrevu));
+  li.append(outil);
+
+  if (enAttente) {
+    const id = 'contenu-' + v.n;
+    const lab = el('label', 'champ-libelle validation-libelle', 'Contenu exact (vous pouvez le corriger)');
+    lab.htmlFor = id;
+    const zone = el('textarea', 'champ validation-contenu');
+    zone.id = id;
+    zone.spellcheck = false;
+    zone.value = brouillons.has(v.n) ? brouillons.get(v.n) : v.contenuExact;
+    zone.rows = Math.min(12, Math.max(3, zone.value.split('\n').length + 1));
+    zone.addEventListener('input', () => brouillons.set(v.n, zone.value));
+    li.append(lab, zone);
+
+    const refus = el('div', 'validation-refus');
+    refus.hidden = true;
+    const motifId = 'motif-' + v.n;
+    const labM = el('label', 'champ-libelle', 'Motif du refus (facultatif)');
+    labM.htmlFor = motifId;
+    const motif = el('input', 'champ');
+    motif.id = motifId;
+    motif.maxLength = 1000;
+    motif.placeholder = 'Ex. Pas de relance avant lundi';
+    const actionsRefus = el('div', 'validation-actions');
+    const annuler = el('button', 'bouton-fantome bouton-petit', 'Annuler');
+    annuler.type = 'button';
+    const confirmerRefus = el('button', 'bouton-plein-danger bouton bouton-petit', 'Refuser la demande');
+    confirmerRefus.type = 'button';
+    actionsRefus.append(annuler, confirmerRefus);
+    refus.append(labM, motif, actionsRefus);
+
+    const actions = el('div', 'validation-actions');
+    const bRefuser = el('button', 'bouton-secondaire bouton-danger', 'Refuser');
+    bRefuser.type = 'button';
+    const bValider = el('button', 'bouton');
+    bValider.type = 'button';
+    bValider.append(icone('i-coche'), el('span', '', 'Valider'));
+    actions.append(bRefuser, bValider);
+    li.append(actions, refus);
+
+    bRefuser.addEventListener('click', () => { actions.hidden = true; refus.hidden = false; motif.focus(); });
+    annuler.addEventListener('click', () => { refus.hidden = true; actions.hidden = false; });
+    motif.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); confirmerRefus.click(); } });
+    bValider.addEventListener('click', () => deciderValidation(v.n, 'valider', { contenu: zone.value }, [bValider, bRefuser, zone]));
+    confirmerRefus.addEventListener('click', () => deciderValidation(v.n, 'refuser', { motif: motif.value }, [confirmerRefus, annuler, motif]));
+  } else {
+    const contenu = el('pre', 'validation-contenu-lu', v.contenuFinal || v.contenuExact);
+    li.append(contenu);
+    if (v.motif) { const p = el('p', 'validation-motif'); p.append(el('strong', '', 'Motif : '), document.createTextNode(v.motif)); li.append(p); }
+    if (v.resultat) { const p = el('div', 'validation-resultat md'); p.innerHTML = markdownEnHTML(v.resultat); li.append(p); }
+  }
+  const hist = el('ul', 'validation-historique');
+  for (const h of (v.historique || [])) {
+    const item = el('li');
+    item.append(el('time', '', quandCourt(h.quand)), document.createTextNode(` · ${h.qui === 'agent' ? (app.marque ? app.marque.nomAgent : 'L\'agent') : h.qui} · ${h.quoi}`));
+    hist.append(item);
+  }
+  li.append(hist);
+  return li;
+}
+
+function rendreValidations() {
+  const attente = app.validations.liste.filter((v) => v.statut === 'en-attente' || v.statut === 'validee');
+  const autres = app.validations.liste.filter((v) => !attente.includes(v));
+  const ul = $('#listeValidations');
+  // Ne pas écraser une saisie en cours (motif de refus ouvert).
+  const motifOuvert = $$('.validation-refus:not([hidden])', ul).map((r) => r.closest('.validation').dataset.n);
+  ul.replaceChildren();
+  if (!attente.length) {
+    const li = el('li', 'vide validations-vide');
+    li.append(icone('i-valider'), el('p', 'vide-titre', 'Rien à valider'), el('p', '', app.mode === 'seul' ? 'L\'agent est en mode « Agit seul » : il agit directement.' : 'Quand l\'agent voudra agir dans un outil branché, sa demande apparaîtra ici.'));
+    ul.append(li);
+  }
+  for (const v of attente) {
+    const carte = carteValidation(v);
+    if (motifOuvert.includes(String(v.n))) { const r = $('.validation-refus', carte); if (r) { r.hidden = false; $('.validation-actions', carte).hidden = true; } }
+    ul.append(carte);
+  }
+  const h = $('#listeHistorique');
+  h.replaceChildren(...autres.map(carteValidation));
+  $('#validationsHistorique').hidden = !autres.length;
+  $('#validationsNbHistorique').textContent = autres.length ? `(${autres.length})` : '';
+}
+
+async function deciderValidation(n, quoi, corps, elements) {
+  elements.forEach((e) => { e.disabled = true; });
+  try {
+    await api('/api/validations/' + quoi, { corps: { n, ...corps } });
+    brouillons.delete(n);
+    toast(quoi === 'valider' ? `Demande n°${n} validée : l'agent l'exécute.` : `Demande n°${n} refusée.`, 'ok');
+    await chargerValidations();
+  } catch (e) {
+    toast(e.message, 'erreur');
+    elements.forEach((x) => { x.disabled = false; });
+    chargerValidations();
+  }
+}
+
 // ---------- Temps réel ----------
 
 function ouvrirFlux() {
@@ -1458,11 +1680,19 @@ function ouvrirFlux() {
     if (m && m.discussion === app.discussion) finaliser(m);
     // L'agent a pu écrire dans work/ ou dans sa mémoire.
     if (!$('#vueReglages').hidden) { chargerFichiers(); chargerContexte(); chargerSkills(); }
+    if (estAdmin()) chargerValidations();
   });
   flux.addEventListener('marque', (e) => changerMarque(lire(e)));
   flux.addEventListener('skills', () => chargerSkills());
   flux.addEventListener('connexions', () => { if (!cx.enTest.size) chargerConnexions(); chargerEtatPlusTard(); });
   flux.addEventListener('contexte', () => { chargerContexte(); chargerEtatPlusTard(); });
+  flux.addEventListener('reglages', (e) => { const d = lire(e); if (d) { rendreMode(d.mode); if (!$('#vueValidations').hidden) rendreValidations(); } });
+  flux.addEventListener('validations', (e) => {
+    const d = lire(e);
+    if (!d || !estAdmin()) return;
+    majCompteurValidations(d.enAttente);
+    if (!$('#vueValidations').hidden || app.validations.charge) chargerValidations();
+  });
   flux.addEventListener('file', (e) => {
     const d = lire(e);
     if (d) appliquerStatut({ file: d.n });
@@ -1499,7 +1729,10 @@ function choisirOnglet(nom) {
   $$('[data-onglet]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.onglet === nom)));
   $('#vueDiscussion').hidden = nom !== 'discussion';
   $('#vueReglages').hidden = nom !== 'reglages';
+  $('#vueValidations').hidden = nom !== 'validations';
   document.body.classList.toggle('sur-reglages', nom === 'reglages');
+  document.body.classList.toggle('sur-validations', nom === 'validations');
+  if (nom === 'validations') chargerValidations();
   if (nom === 'reglages') { chargerEtat(); chargerContexte(); chargerFichiers(); chargerSkills(); chargerConnexions(); if (ctx.sous === 'documents') chargerDocuments(); }
   if (nom !== 'discussion') basculerMenuSkills(false);
   if (nom === 'discussion') requestAnimationFrame(() => defiler(true));
@@ -1679,6 +1912,15 @@ async function seDeconnecter() {
 function brancherInterface() {
   // Onglets (haut sur ordinateur, bas sur mobile)
   $$('[data-onglet]').forEach((b) => b.addEventListener('click', () => choisirOnglet(b.dataset.onglet)));
+
+  // Mode de l'agent (sous le personnage)
+  $$('#modeAgent .mode-choix').forEach((b) => b.addEventListener('click', () => changerMode(b.dataset.mode)));
+  $('#modeAgent').addEventListener('keydown', (e) => {
+    if (!['ArrowLeft', 'ArrowRight'].includes(e.key) || !estAdmin()) return;
+    e.preventDefault();
+    const m = app.mode === 'seul' ? 'propose' : 'seul';
+    changerMode(m).then(() => { const b = $(`#modeAgent [data-mode="${app.mode}"]`); if (b) b.focus(); });
+  });
 
   // Saisie
   const zone = $('#zoneMessage');
@@ -1882,7 +2124,8 @@ async function demarrer() {
   remplirIdentite();
   brancherInterface();
   creerScene();
-  await Promise.all([chargerEtat(), chargerDiscussion(), chargerSkills()]);
+  rendreMode(app.mode);
+  await Promise.all([chargerEtat(), chargerDiscussion(), chargerSkills(), chargerValidations()]);
   ouvrirFlux();
   retourOAuth();
 }

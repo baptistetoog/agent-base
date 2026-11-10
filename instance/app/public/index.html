@@ -39,6 +39,10 @@
     <symbol id="i-api" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M8 7l-5 5 5 5M16 7l5 5-5 5M13.5 5l-3 14"/></symbol>
     <symbol id="i-test" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M7 4.5v15l12-7.5z"/></symbol>
     <symbol id="i-recharger" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 4.5v4h-4"/></symbol>
+    <symbol id="i-valider" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.2l7 2.6v5.4c0 4.4-2.9 8-7 9.6-4.1-1.6-7-5.2-7-9.6V5.8z"/><path d="M8.8 12.2l2.2 2.2 4.3-4.6"/></g></symbol>
+    <symbol id="i-coche" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+    <symbol id="i-main" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20.5a8.5 8.5 0 1 0 0-17 8.5 8.5 0 0 0 0 17z"/><path d="M12 8v4.5M12 15.8h.01"/></g></symbol>
+    <symbol id="i-eclair" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" d="M13 3L5 13.5h6L10 21l8-10.5h-6z"/></symbol>
     <symbol id="i-crayon" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16zM13.5 6.5l4 4"/></symbol>
   </svg>
 
@@ -77,6 +81,15 @@
           <span class="etiquette-activite" id="etiquetteActivite">Au repos</span>
         </span>
       </div>
+      <div class="mode-agent" id="modeAgent" role="radiogroup" aria-label="Mode de l'agent">
+        <span class="mode-titre">Mode</span>
+        <button class="mode-choix" type="button" role="radio" data-mode="propose" aria-checked="true" title="Il lit et prépare ; chaque action passe par « À valider »">
+          <svg class="icone" aria-hidden="true"><use href="#i-valider"/></svg><span>Propose</span>
+        </button>
+        <button class="mode-choix" type="button" role="radio" data-mode="seul" aria-checked="false" title="Il peut agir directement dans les outils branchés">
+          <svg class="icone" aria-hidden="true"><use href="#i-eclair"/></svg><span>Agit seul</span>
+        </button>
+      </div>
       <button class="bouton-icone scene-replier" id="replierScene" type="button" aria-expanded="true" aria-controls="scene3d" aria-label="Replier le bureau">
         <svg class="icone"><use href="#i-chevron"/></svg>
       </button>
@@ -90,6 +103,9 @@
           </button>
           <button class="onglet" type="button" role="tab" id="onglet-reglages" data-onglet="reglages" aria-selected="false" aria-controls="vueReglages">
             <svg class="icone"><use href="#i-reglages"/></svg>Réglages
+          </button>
+          <button class="onglet admin-seul" type="button" role="tab" id="onglet-validations" data-onglet="validations" aria-selected="false" aria-controls="vueValidations">
+            <svg class="icone"><use href="#i-valider"/></svg>À valider<span class="compteur" data-compteur-validations hidden>0</span>
           </button>
         </div>
       </div>
@@ -151,6 +167,19 @@
       </div>
 
       <!-- Onglet Réglages -->
+      <!-- Onglet À valider (admins) -->
+      <div class="vue vue-validations admin-seul" id="vueValidations" role="tabpanel" aria-labelledby="onglet-validations" hidden>
+        <div class="validations-tete">
+          <h2 class="carte-titre">À valider</h2>
+          <p class="carte-aide" id="validationsAide">En mode « Propose », l'agent prépare ses actions et attend votre accord ici. Vous pouvez corriger le contenu avant de valider.</p>
+        </div>
+        <ul class="liste-validations" id="listeValidations" aria-label="Demandes en attente"></ul>
+        <details class="validations-historique" id="validationsHistorique" hidden>
+          <summary>Historique <span id="validationsNbHistorique"></span></summary>
+          <ul class="liste-validations" id="listeHistorique"></ul>
+        </details>
+      </div>
+
       <div class="vue vue-reglages" id="vueReglages" role="tabpanel" aria-labelledby="onglet-reglages" hidden>
         <section class="carte reglage" id="sectionIdentite" aria-labelledby="titreIdentite">
           <h2 class="carte-titre" id="titreIdentite">Identité</h2>
@@ -308,6 +337,9 @@
     </button>
     <button class="barre-onglet" type="button" data-onglet="reglages" aria-selected="false">
       <svg class="icone"><use href="#i-reglages"/></svg><span>Réglages</span>
+    </button>
+    <button class="barre-onglet admin-seul" type="button" data-onglet="validations" aria-selected="false">
+      <span class="barre-onglet-icone"><svg class="icone"><use href="#i-valider"/></svg><span class="compteur" data-compteur-validations hidden>0</span></span><span>À valider</span>
     </button>
   </nav>
 

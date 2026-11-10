@@ -103,7 +103,7 @@ function outils() {
   if (connexion && connexion.ecriture) {
     liste.push({
       name: 'appel_api',
-      description: `Appelle l'API « ${NOM} » avec n'importe quelle méthode (${METHODES.join(', ')}). À n'utiliser qu'avec l'accord explicite de la personne pour toute création, modification ou suppression.`,
+      description: `Appelle l'API « ${NOM} » avec n'importe quelle méthode (${METHODES.join(', ')}). C'est une action : sauf mode « Agit seul » ou validation accordée, passe d'abord par demander_validation.`,
       inputSchema: {
         type: 'object',
         properties: {

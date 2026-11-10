@@ -10,6 +10,7 @@ const agent = require('./agent');
 const espace = require('./espace');
 const skills = require('./skills');
 const connexions = require('./connexions');
+const validations = require('./validations');
 
 process.umask(0o077); // tout fichier créé par le serveur n'est lisible que par son propriétaire
 
@@ -242,6 +243,15 @@ espace.init({
 });
 agent.init({ diffuser, nomAgent: espace.identite().nomAgent });
 
+// Les cartes « À valider » sont créées par app/mcp-plateforme.js (autre processus) : on surveille le fichier
+// et on prévient les pages (onglet « À valider », « ! » de la scène 3D).
+function signalerValidations() {
+  let n = 0;
+  try { n = validations.nombreEnAttente(); } catch { return; }
+  diffuser('validations', { enAttente: n });
+}
+fs.watchFile(validations.FICHIER, { interval: 1000 }, (cur, prev) => { if (cur.mtimeMs !== prev.mtimeMs) signalerValidations(); });
+
 // État de la mise en route et voyants du système.
 // Les étapes 2 à 4 arrivent aux étapes suivantes de l'installation : passer « disponible » à true
 // et brancher « fait » quand leur fonction sera installée.
@@ -258,6 +268,8 @@ function etatSysteme() {
   return {
     claude,
     agent: agent.statut(),
+    mode: validations.mode(),
+    validations: { enAttente: validations.nombreEnAttente() },
     miseEnRoute: { etapes, terminee: etapes.every((e) => e.fait) },
     voyants: {
       claude: { disponible: true, ok: claude.connecte, texte: claude.connecte ? 'Connecté' : 'Non connecté' },
@@ -554,6 +566,57 @@ async function traiter(req, res) {
     return json(res, code, reste);
   }
 
+  // ----- Mode de l'agent (« Propose » / « Agit seul ») : lecture pour tous, changement admin -----
+  if (chemin === '/api/reglages' && methode === 'GET') return json(res, 200, validations.reglages());
+  if (chemin === '/api/reglages/mode' && methode === 'POST') {
+    if (!estAdmin) return json(res, 403, { erreur: 'Seul un admin peut changer le mode de l\'agent.' });
+    let corps;
+    try { corps = await lireCorps(req); } catch { return json(res, 413, { erreur: 'Requête trop grosse' }); }
+    const r = validations.changerMode(String(corps.mode || ''), session.compte);
+    const { code, ...reste } = r;
+    if (r.ok) { console.log(`Mode de l'agent : ${r.reglages.mode} (par ${session.compte.email}).`); diffuser('reglages', r.reglages); }
+    return json(res, code, reste);
+  }
+
+  // ----- Cartes « À valider » : réservées aux admins -----
+  if (chemin.startsWith('/api/validations')) {
+    if (!estAdmin) return json(res, 403, { erreur: 'Seul un admin peut voir et décider des validations.' });
+    if (chemin === '/api/validations' && methode === 'GET') return json(res, 200, validations.lister());
+    if (methode !== 'POST') return json(res, 405, { erreur: 'Méthode non autorisée' });
+    let corps;
+    try { corps = await lireCorps(req, 64 * 1024); } catch { return json(res, 413, { erreur: 'Contenu trop long' }); }
+    const n = parseInt(corps.n, 10);
+    const qui = prenom(session.compte.nom) || session.compte.email;
+    let r;
+    if (chemin === '/api/validations/valider') {
+      if (!agent.etatClaude().connecte) return json(res, 409, { erreur: 'Claude n\'est pas connecté : l\'agent ne peut pas exécuter l\'action.' });
+      r = validations.valider(n, typeof corps.contenu === 'string' ? corps.contenu : null, session.compte);
+      if (r.ok) {
+        const c = r.carte;
+        console.log(`Validation n°${c.n} accordée par ${session.compte.email}.`);
+        const envoi = agent.envoyerDecision(`Validation n°${c.n} accordée par ${qui}. Exécute exactement cette action, rien d'autre : ${c.contenuFinal}. Puis confirme en une phrase.`, session.compte, c.n, { validation: c.n });
+        if (!envoi.ok) {
+          validations.finir(c.n, false, envoi.erreur);
+          r = { code: envoi.code, erreur: envoi.erreur };
+        }
+      }
+    } else if (chemin === '/api/validations/refuser') {
+      r = validations.refuser(n, corps.motif, session.compte);
+      if (r.ok) {
+        const c = r.carte;
+        console.log(`Validation n°${c.n} refusée par ${session.compte.email}.`);
+        const motif = c.motif ? `Motif : ${c.motif}` : 'Aucun motif donné.';
+        agent.envoyerDecision(`Validation n°${c.n} refusée par ${qui} (« ${c.titre} »). ${motif} Ne fais pas cette action. Si ce motif est utile pour la suite, retiens-le dans ta mémoire. Réponds en une phrase.`, session.compte, c.n);
+      }
+    } else if (chemin === '/api/validations/supprimer') {
+      r = validations.supprimer(Array.isArray(corps.numeros) ? corps.numeros : []);
+      if (r.ok) console.log(`${r.supprimees} carte(s) de validation supprimée(s) par ${session.compte.email}.`);
+    } else return json(res, 404, { erreur: 'Introuvable' });
+    signalerValidations();
+    const { code, ...reste } = r;
+    return json(res, code || 200, reste);
+  }
+
   // ----- Connexions (outils externes) : réservées aux admins -----
   // Retour d'une autorisation OAuth (navigation du navigateur, donc GET) : échange du code côté serveur,
   // puis retour au bureau. Les jetons ne sont jamais renvoyés au navigateur.
@@ -581,6 +644,7 @@ async function traiter(req, res) {
     else if (chemin === '/api/connexions/tester') { const t = await connexions.tester(corps.nom); r = { code: 200, ...t }; }
     else if (chemin === '/api/connexions/reconnecter') r = await connexions.reconnecter(corps.nom, session.cle);
     else if (chemin === '/api/connexions/ecriture') r = connexions.changerEcriture(corps.nom, corps.ecriture);
+    else if (chemin === '/api/connexions/actions') r = connexions.changerAction(corps.nom, corps.outil, corps.action);
     else if (chemin === '/api/connexions/supprimer') {
       r = connexions.supprimer(corps.nom);
       if (r.ok) console.log(`Connexion ${String(corps.nom)} supprimée par ${session.compte.email}.`);

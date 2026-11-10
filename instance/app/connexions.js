@@ -27,7 +27,7 @@ const API = path.join(__dirname, 'mcp-api.js');
 const DOMAINE = process.env.DOMAINE || 'agentforma.toog-expertise.app';
 const RETOUR = `https://${DOMAINE}/api/oauth/retour`;
 const NOM_VALIDE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-const NOMS_RESERVES = new Set(['approbation', 'claude', 'ide']);
+const NOMS_RESERVES = new Set(['approbation', 'plateforme', 'claude', 'ide']);
 const TYPES = { oauth: 'Serveur MCP (connexion par compte, OAuth)', jeton: 'Serveur MCP (avec un jeton)', api: 'API avec clé' };
 const DUREE_STATE = 10 * 60 * 1000;   // une autorisation doit être terminée en 10 minutes
 const DUREE_TEST = 45 * 1000;
@@ -118,6 +118,83 @@ function masquerTexte(texte, secrets) {
   return t.replace(/(bearer\s+)[A-Za-z0-9._~+\/=-]{12,}/gi, '$1***');
 }
 
+// ---------- Le tri des outils : lecture (libre) ou action (à valider) ----------
+// Un outil est pré-coché « Action » si son nom (ou, à défaut d'un verbe de lecture dans le nom,
+// sa description) parle d'écrire. Les outils de lecture restent libres. L'admin peut corriger :
+// le tri est enregistré par connexion (champ « actions » : { outil: true|false }).
+// Pour une « API avec clé » : appel_api est toujours une action, lire_api toujours libre (non modifiables).
+
+const MOTS_ECRITURE = ['create', 'update', 'delete', 'del', 'reply', 'post', 'publish', 'send', 'add', 'remove', 'patch', 'upload',
+  'write', 'edit', 'insert', 'put', 'set', 'modify', 'move', 'rename', 'archive', 'cancel', 'comment', 'invite', 'share', 'submit',
+  'assign', 'schedule', 'trigger', 'execute', 'run', 'append', 'replace', 'merge', 'close', 'approve', 'book', 'pay', 'charge',
+  'refund', 'transfer', 'import', 'sync', 'save', 'store', 'notify', 'duplicate', 'restore', 'deploy', 'push', 'commit',
+  'start', 'stop', 'reset', 'grant', 'revoke', 'enable', 'disable', 'launch', 'order', 'buy',
+  'creer', 'modifier', 'supprimer', 'envoyer', 'publier', 'ajouter', 'retirer', 'repondre', 'ecrire', 'appel'];
+const MOTS_LECTURE = ['get', 'list', 'search', 'find', 'read', 'fetch', 'query', 'lookup', 'view', 'show', 'describe', 'count',
+  'retrieve', 'download', 'export', 'check', 'browse', 'lire', 'chercher', 'lister', 'voir'];
+
+function mots(texte) {
+  return String(texte || '').replace(/([a-z])([A-Z])/g, '$1 $2').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+}
+function estActionParDefaut(nom, description) {
+  const m = mots(nom);
+  // Le premier verbe du nom décide (get_post = lecture, create_post = action)…
+  const verbe = m.find((x) => MOTS_ECRITURE.includes(x) || MOTS_LECTURE.includes(x));
+  if (verbe) return MOTS_ECRITURE.includes(verbe);
+  // … sinon la description.
+  const d = mots(description);
+  return d.some((x) => MOTS_ECRITURE.includes(x) || MOTS_ECRITURE.includes(x.replace(/(e?s|ed|ing)$/, '')));
+}
+// Outils fixés pour le type « api ».
+function triFixe(c, outil) {
+  if (c.type !== 'api') return null;
+  if (outil === 'appel_api') return true;
+  if (outil === 'lire_api') return false;
+  return null;
+}
+// Liste des outils d'une connexion avec leur tri. Type api : lire_api toujours, appel_api si l'écriture est autorisée.
+function outilsTries(c) {
+  let noms = Array.isArray(c.outils) ? c.outils.slice() : [];
+  if (c.type === 'api') noms = ['lire_api', ...(c.ecriture ? ['appel_api'] : [])];
+  const desc = c.descriptions || {};
+  const actions = c.actions || {};
+  return noms.map((nom) => {
+    const fixe = triFixe(c, nom);
+    const action = fixe !== null ? fixe : (typeof actions[nom] === 'boolean' ? actions[nom] : estActionParDefaut(nom, desc[nom]));
+    return { nom, description: desc[nom] || (c.type === 'api' ? (nom === 'appel_api' ? 'Appel en écriture (POST, PUT, PATCH, DELETE).' : 'Lecture (GET).') : ''), action, verrouille: fixe !== null };
+  });
+}
+// Après un test réussi : on garde le tri déjà fait, on pré-trie les nouveaux outils.
+function trierApresTest(c, outils) {
+  const actions = {};
+  const descriptions = {};
+  for (const o of outils) {
+    descriptions[o.nom] = o.description || '';
+    const fixe = triFixe(c, o.nom);
+    actions[o.nom] = fixe !== null ? fixe : (c.actions && typeof c.actions[o.nom] === 'boolean' ? c.actions[o.nom] : estActionParDefaut(o.nom, o.description));
+  }
+  return { actions, descriptions };
+}
+function changerAction(nomBrut, outil, action) {
+  const c = trouver(nettoyerNom(nomBrut));
+  if (!c) return { code: 404, erreur: 'Connexion introuvable.' };
+  const o = String(outil || '');
+  if (!outilsTries(c).some((x) => x.nom === o)) return { code: 404, erreur: 'Outil inconnu pour cette connexion : relancez « Tester ».' };
+  if (triFixe(c, o) !== null) return { code: 400, erreur: o === 'appel_api' ? 'appel_api est toujours une action à valider.' : 'lire_api reste toujours libre.' };
+  const actions = { ...(c.actions || {}), [o]: action === true };
+  majConnexion(c.nom, { actions });
+  return { code: 200, ok: true, connexion: vue(trouver(c.nom)) };
+}
+// Tous les outils « Action » des connexions actives, au format Claude Code (mcp__<connexion>__<outil>).
+function outilsActions() {
+  const res = [];
+  for (const c of actives()) {
+    for (const o of outilsTries(c)) if (o.action) res.push({ connexion: c.nom, outil: o.nom, complet: `mcp__${c.nom}__${o.nom}`, description: o.description });
+  }
+  return res;
+}
+
 // ---------- Vue publique (jamais de secret entier) ----------
 
 function vue(c) {
@@ -126,6 +203,7 @@ function vue(c) {
     nom: c.nom, type: c.type, typeLibelle: TYPES[c.type], url: c.url,
     statut: c.statut || 'erreur', erreur: c.erreur || null,
     outils: Array.isArray(c.outils) ? c.outils : [],
+    outilsTri: outilsTries(c),
     testeLe: c.testeLe || null, creeLe: c.creeLe || null, creePar: c.creePar || null,
   };
   if (c.type === 'jeton' || c.type === 'api') {
@@ -488,7 +566,10 @@ function testerVraiment(nom) {
       setTimeout(() => { try { proc.kill('SIGTERM'); } catch { /* rien */ } }, 300).unref();
       const testeLe = new Date().toISOString();
       if (r.ok) {
-        majConnexion(nom, { statut: 'connecte', erreur: null, outils: r.outils.map((o) => o.nom), testeLe });
+        const actuelle = trouver(nom) || c;
+        const tri = trierApresTest(actuelle, r.outils);
+        majConnexion(nom, { statut: 'connecte', erreur: null, outils: r.outils.map((o) => o.nom), ...tri, testeLe });
+        r.outilsTri = outilsTries(trouver(nom) || actuelle);
       } else {
         const statut = /reconnecter/i.test(r.erreur) ? 'a-reconnecter' : 'erreur';
         r.statut = statut;
@@ -535,4 +616,5 @@ function dernierMessage(texte) {
 module.exports = {
   lister, creer, supprimer, reconnecter, tester, changerEcriture, retourOAuth,
   serveursMCP, actives, nombreQuiMarchent, decouvrir, masquerTexte, RETOUR,
+  changerAction, outilsActions, outilsTries, estActionParDefaut,
 };

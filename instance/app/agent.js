@@ -12,6 +12,7 @@ const path = require('path');
 const espace = require('./espace');
 const skills = require('./skills');
 const connexions = require('./connexions');
+const validations = require('./validations');
 
 const RACINE = path.resolve(__dirname, '..');
 const DOSSIER_AGENT = path.join(RACINE, 'agent');
@@ -31,11 +32,15 @@ const MAX_MESSAGES_RENVOYES = 300;
 // dans son dossier .claude/ ; ce serveur dit « oui » uniquement pour agent/.claude/skills/<id>/SKILL.md
 // avec un en-tête valide, « non » à tout le reste. Les règles deny passent avant lui.
 const SERVEUR_APPROBATION = { type: 'stdio', command: process.execPath, args: [path.join(__dirname, 'mcp-approbation.js')] };
+// Serveur MCP de la plateforme (app/mcp-plateforme.js), toujours branché : outil demander_validation.
+const PROGRAMME_PLATEFORME = path.join(__dirname, 'mcp-plateforme.js');
+const OUTIL_VALIDATION = 'mcp__plateforme__demander_validation';
 
-// Options de chaque lancement de l'agent. La configuration MCP (approbation + connexions actives)
+// Options de chaque lancement de l'agent. La configuration MCP (approbation + plateforme + connexions actives)
 // est écrite dans un fichier temporaire de data/ (600, supprimé après) : voir fichierMCP().
-function optionsAgent(fichierConfig, nomsConnexions) {
-  return [
+// interdits : outils « Action » bloqués (mode « Propose ») ; consigne : rappel du mode, ajouté au prompt système.
+function optionsAgent(fichierConfig, nomsConnexions, interdits = [], consigne = '') {
+  const o = [
     '-p',
     '--output-format', 'stream-json',
     '--verbose',
@@ -46,15 +51,48 @@ function optionsAgent(fichierConfig, nomsConnexions) {
     '--mcp-config', fichierConfig,
     '--permission-prompt-tool', 'mcp__approbation__approuver',
     '--permission-mode', 'acceptEdits',
-    '--allowedTools', 'Read', 'Glob', 'Grep', 'WebSearch', 'WebFetch', 'Skill', ...nomsConnexions.map((n) => `mcp__${n}__*`),
-    '--disallowedTools', 'Bash', 'Task', 'Agent', 'NotebookEdit',
+    '--allowedTools', 'Read', 'Glob', 'Grep', 'WebSearch', 'WebFetch', 'Skill', OUTIL_VALIDATION, ...nomsConnexions.map((n) => `mcp__${n}__*`),
+    '--disallowedTools', 'Bash', 'Task', 'Agent', 'NotebookEdit', ...interdits,
   ];
+  if (consigne) o.push('--append-system-prompt', consigne);
+  return o;
+}
+
+// Ce lancement : quels outils « Action » bloquer, et quelle consigne de mode donner.
+// - mode « Propose » : tous les outils Action sont bloqués (--disallowedTools) ;
+// - validation accordée : seul l'outil prévu par la carte est ouvert pour CE lancement
+//   (tous les outils Action si l'outil prévu ne correspond à aucun) ;
+// - mode « Agit seul » : rien n'est bloqué.
+function reglesDuLancement(travail) {
+  const actions = (() => { try { return connexions.outilsActions(); } catch { return []; } })();
+  const v = travail.validation ? validations.trouver(travail.validation) : null;
+  if (v) {
+    const prevu = String(v.outilPrevu || '').trim();
+    const visees = actions.filter((a) => a.complet === prevu || a.outil === prevu || prevu.endsWith('__' + a.outil) && prevu.includes(a.connexion));
+    const ouverts = visees.length ? visees : actions;
+    return {
+      interdits: actions.filter((a) => !ouverts.includes(a)).map((a) => a.complet),
+      consigne: `Ce lancement exécute la validation n°${v.n} accordée par l'équipe : ${ouverts.map((a) => a.complet).join(', ') || 'les outils d\'action'} ${ouverts.length > 1 ? 'te sont ouverts' : 't\'est ouvert'} pour CE lancement seulement. Exécute exactement l'action validée, rien d'autre, et n'appelle pas demander_validation.`,
+    };
+  }
+  if (validations.mode() === 'seul') {
+    return { interdits: [], consigne: 'Mode actuel de l\'agent : « Agit seul ». Tu peux utiliser directement les outils d\'action des connexions quand la demande le justifie, sans demander_validation ; dis ensuite en une phrase ce que tu as fait.' };
+  }
+  return {
+    interdits: actions.map((a) => a.complet),
+    consigne: 'Mode actuel de l\'agent : « Propose ». Les outils d\'action des connexions te sont bloqués : pour toute action qui modifie quelque chose dans un outil branché, suis la section « Tes validations » de ta fiche (demander_validation avec le contenu exact, puis tu t\'arrêtes).',
+  };
 }
 
 // Fichier de configuration MCP temporaire : le serveur d'approbation + une entrée par connexion active
 // (programme + NOM seulement : les ponts relisent eux-mêmes les secrets dans data/, interdit à l'agent).
-function fichierMCP() {
-  const serveurs = { approbation: SERVEUR_APPROBATION };
+function fichierMCP(contexte = {}) {
+  const env = { DISCUSSION: String(contexte.discussion || ''), LANCEMENT: String(contexte.lancement || '') };
+  if (contexte.compte) { env.DEMANDE_PAR_NOM = String(contexte.compte.nom || ''); env.DEMANDE_PAR_EMAIL = String(contexte.compte.email || ''); }
+  const serveurs = {
+    approbation: SERVEUR_APPROBATION,
+    plateforme: { type: 'stdio', command: process.execPath, args: [PROGRAMME_PLATEFORME], env },
+  };
   let noms = [];
   try {
     const c = connexions.serveursMCP();
@@ -456,6 +494,7 @@ const OUTILS = {
 
 function libelleOutil(nom) {
   if (OUTILS[nom]) return OUTILS[nom];
+  if (nom === OUTIL_VALIDATION) return 'Demande une validation';
   const m = String(nom || '').match(/^mcp__([a-z0-9-]+)__/);
   if (m && m[1] !== 'approbation') return `Utilise ${m[1]}`;
   return 'Utilise un outil';
@@ -479,7 +518,9 @@ function phraseOutil(nom, entree) {
     case 'TodoWrite': return 'Je fais ma liste…';
     case 'ToolSearch': return 'Je regarde quels outils j\'ai…';
     default: {
+      if (nom === OUTIL_VALIDATION) return e.titre ? `Je demande une validation : ${court(e.titre, 40)}` : 'Je demande une validation…';
       const m = String(nom || '').match(/^mcp__([a-z0-9-]+)__(.+)$/);
+      if (m && m[2] === 'appel_api' && e.chemin) return `J'appelle ${m[1]} (${court(String(e.methode || '').toUpperCase() + ' ' + e.chemin, 34)})…`;
       if (m && m[2] === 'lire_api' && e.chemin) return `Je consulte ${m[1]} (${court(e.chemin, 34)})…`;
       if (m) return `J'utilise ${m[1]} (${court(m[2], 30)})…`;
       return 'Je travaille…';
@@ -578,13 +619,14 @@ function lancer(travail, relance, idExistant) {
   if (!jeton) { c.raison = 'sans-cle'; return terminer(c); }
 
   let mcp;
-  try { mcp = fichierMCP(); } catch (e) {
+  try { mcp = fichierMCP({ discussion: c.discussion, lancement: c.id, compte: travail.compte }); } catch (e) {
     console.error('Configuration MCP impossible :', e.message);
     c.raison = 'technique';
     return terminer(c);
   }
   c.fichierMCP = mcp.fichier;
-  const args = optionsAgent(mcp.fichier, mcp.noms);
+  const regles = reglesDuLancement(travail);
+  const args = optionsAgent(mcp.fichier, mcp.noms, regles.interdits, regles.consigne);
   if (etat.sessionId) args.push('--resume', etat.sessionId);
   try {
     c.proc = spawn(CLAUDE, args, { cwd: DOSSIER_AGENT, env: environnement(jeton), stdio: ['pipe', 'pipe', 'pipe'], detached: true });
@@ -658,6 +700,14 @@ function terminer(c) {
     statut: statutFin,
   };
   try { ajouterHistorique(entree); } catch (e) { console.error('Historique :', e.message); }
+  // Lancement qui exécutait une validation : la carte passe à « exécutée » (ou « échec ») avec le résultat.
+  if (c.travail.validation) {
+    const outilAppele = c.outils.some((o) => /^mcp__/.test(o.nom) && !/^mcp__(plateforme|approbation)__/.test(o.nom));
+    const ok = statutFin === 'ok' && outilAppele;
+    validations.finir(c.travail.validation, ok, texte || (outilAppele ? '' : 'L\'agent n\'a appelé aucun outil.'));
+    console.log(`Validation n°${c.travail.validation} : ${ok ? 'exécutée' : 'échec'}.`);
+    diffuser('validations', { enAttente: validations.nombreEnAttente() });
+  }
   etat.courant = null;
   diffuser('fin', entree);
   if (c.skillsModifies) diffuser('skills', {});
@@ -817,6 +867,25 @@ function envoyer(texte, compte, fichier, skill) {
   return { code: 200, ok: true, message: entree, enAttente: occupe ? etat.file.length : 0 };
 }
 
+// Message de la plateforme dans la discussion (validation accordée ou refusée) : il part à l'agent
+// comme un message de la personne qui a décidé, avec l'étiquette « Validation n°X ».
+// options.validation = n° de la carte À EXÉCUTER (ouvre l'outil prévu pour ce lancement seulement).
+function envoyerDecision(texte, compte, n, options = {}) {
+  if (!lireJeton()) return { code: 409, erreur: 'Claude n\'est pas connecté : l\'agent ne peut pas être relancé.' };
+  if (etat.file.length >= 20) return { code: 429, erreur: 'Trop de messages en attente. Patientez un peu.' };
+  const entree = {
+    type: 'message', id: nouvelId(), discussion: etat.discussion, role: 'utilisateur',
+    quand: maintenant(), qui: { email: compte.email, nom: compte.nom }, texte, decision: { n, type: options.validation ? 'validee' : 'refusee' },
+  };
+  ajouterHistorique(entree);
+  diffuser('message', entree);
+  const occupe = Boolean(etat.courant);
+  etat.file.push({ entree, compte: { email: compte.email, nom: compte.nom, role: compte.role }, validation: options.validation || null });
+  if (occupe) diffuser('file', { n: etat.file.length });
+  else suivant();
+  return { code: 200, ok: true, message: entree };
+}
+
 function arreter() {
   if (!etat.courant) return false;
   etat.courant.raison = 'arret';
@@ -825,6 +894,9 @@ function arreter() {
 }
 
 function nouvelleDiscussion(compte) {
+  // Validations accordées encore dans la file : elles ne seront pas exécutées.
+  for (const t of etat.file) if (t.validation) validations.finir(t.validation, false, 'Non exécutée : une nouvelle discussion a été ouverte avant son tour.');
+  if (etat.file.some((t) => t.validation)) diffuser('validations', { enAttente: validations.nombreEnAttente() });
   etat.file = [];
   diffuser('file', { n: 0 });
   arreter();
@@ -851,7 +923,7 @@ function discussion() {
 }
 
 module.exports = {
-  init, envoyer, arreter, nouvelleDiscussion, discussion, statut, enCours,
+  init, envoyer, envoyerDecision, arreter, nouvelleDiscussion, discussion, statut, enCours,
   etatClaude, connecterClaude, deconnecterClaude, nettoyerCle,
   demarrerConnexion, finirConnexion, changerNomAgent,
   remplirDepuisSite, etatRemplissage, annulerRemplissage,
