@@ -13,6 +13,10 @@ L'outil obtenu :
 - le **contrôle** : le mode « Propose » ou « Agit seul », et les cartes « À valider » ;
 - les **automatisations** : des missions à heure fixe, proposées par l'agent après un court entretien.
 
+## Testé de bout en bout
+
+Les 10 prompts ont été joués tels quels, par des sessions Claude vierges, sur une instance de test (https://agentforma.toog-expertise.app), les 9 et 10/11/2026. Chaque écart a corrigé le prompt (pas le code) : voir `journal.md`. Les captures de l'instance sont dans `captures/`.
+
 ## Les 10 étapes
 
 | # | Étape | Prompt | À la main |
