@@ -22,10 +22,10 @@ Les 10 prompts ont été joués tels quels, par des sessions Claude vierges, sur
 | # | Étape | Prompt | À la main |
 |---|---|---|---|
 | 1 | Préparer l'espace de l'agent sur le serveur | `prompts/01-espace-serveur.md` | — |
-| 2 | Créer la clé de connexion à Claude | `prompts/02-connecter-claude.md` | `claude setup-token` |
+| 2 | Votre abonnement Claude fait tourner l'agent | `prompts/02-connecter-claude.md` | — (explication) |
 | 3 | Créer l'outil et son espace de connexion protégé | `prompts/03-outil-connexion.md` | — |
 | 4 | Mettre l'outil en ligne sur son sous-domaine | `prompts/04-mise-en-ligne.md` | le DNS, son compte admin |
-| 5 | Donner vie à l'agent : bureau 3D, discussion, cerveau | `prompts/05-agent-visuel.md` | coller la clé dans « Connecter Claude » |
+| 5 | Donner vie à l'agent : bureau 3D, discussion, cerveau | `prompts/05-agent-visuel.md` | « Se connecter avec Claude » (sans Terminal) |
 | 6 | Le contexte et la mémoire | `prompts/06-contexte-memoire.md` | remplir sa fiche |
 | 7 | Les compétences (skills) | `prompts/07-skills.md` | — |
 | 8 | Les connexions : MCP et clés API | `prompts/08-connexions.md` | coller ses clés dans « Connexions » |
