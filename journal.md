@@ -24,3 +24,4 @@ Méthode : chaque prompt est collé tel quel dans une session Claude vierge. Qua
 | Étape | Résultat | Écarts |
 |---|---|---|
 | 0, 1, 3 | Réussi (une session pour les trois) | Précisé au prompt 3 : fichiers publics, droits 600, PORT et Restart dans le service. |
+| 4 à 10 | Non rejoué : rejeu arrêté par Baptiste ; instance agentrejeu supprimée du serveur le 10/11. | |
