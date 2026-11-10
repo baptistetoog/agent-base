@@ -43,6 +43,7 @@
     <symbol id="i-coche" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
     <symbol id="i-main" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20.5a8.5 8.5 0 1 0 0-17 8.5 8.5 0 0 0 0 17z"/><path d="M12 8v4.5M12 15.8h.01"/></g></symbol>
     <symbol id="i-eclair" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" d="M13 3L5 13.5h6L10 21l8-10.5h-6z"/></symbol>
+    <symbol id="i-horloge" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></g></symbol>
     <symbol id="i-crayon" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16zM13.5 6.5l4 4"/></symbol>
   </svg>
 
@@ -121,6 +122,7 @@
           </button>
           <ol class="mer-etapes" id="merEtapes"></ol>
           <div class="mer-action" id="merAction" hidden></div>
+          <p class="mer-prete" id="merPrete" hidden><span aria-hidden="true">✅</span> Votre agent est prêt</p>
         </section>
 
         <div class="fil" id="fil" aria-live="polite" aria-label="Messages">
@@ -302,6 +304,22 @@
             <button class="bouton bouton-petit" type="button" id="boutonNouvelleConnexion"><svg class="icone"><use href="#i-plus"/></svg>Nouvelle connexion</button>
           </div>
           <ul class="liste-connexions" id="listeConnexions"></ul>
+        </section>
+
+        <section class="carte reglage" id="sectionAutomatisations" aria-labelledby="titreAutomatisations">
+          <div class="carte-entete">
+            <div>
+              <h2 class="carte-titre" id="titreAutomatisations">Automatisations</h2>
+              <p class="carte-aide">Les missions que l'agent fait tout seul, à heure fixe (heure de Paris). En mode « Propose », ses actions passent toujours par « À valider ».</p>
+            </div>
+            <button class="bouton bouton-petit admin-seul" type="button" id="boutonNouvelleAuto"><svg class="icone"><use href="#i-plus"/></svg>Nouvelle automatisation</button>
+          </div>
+          <ul class="liste-autos" id="listeAutos"></ul>
+          <div class="modeles-autos admin-seul" id="modelesAutos">
+            <p class="modeles-titre">Modèles prêts à ajouter <span>(ajoutés en pause)</span></p>
+            <ul class="liste-modeles" id="listeModeles"></ul>
+          </div>
+          <p class="reglage-note membre-seul" hidden>Vous pouvez lire les automatisations ; seul un admin peut les créer, les modifier ou les lancer.</p>
         </section>
 
         <section class="carte reglage" id="sectionFichiers" aria-labelledby="titreFichiers">
@@ -569,6 +587,62 @@
         <div class="fenetre-actions">
           <button class="bouton-secondaire" type="button" data-fermer>Annuler</button>
           <button class="bouton" type="submit" id="boutonAjouterConnexion">Connecter</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Fenêtre « Automatisation » : créer, modifier -->
+  <div class="fenetre-fond" id="fenetreAuto" hidden>
+    <div class="fenetre fenetre-auto" role="dialog" aria-modal="true" aria-labelledby="titreAuto">
+      <div class="fenetre-entete">
+        <h2 class="fenetre-titre" id="titreAuto">Nouvelle automatisation</h2>
+        <button class="bouton-icone" type="button" data-fermer aria-label="Fermer"><svg class="icone"><use href="#i-fermer"/></svg></button>
+      </div>
+      <form id="formAuto" autocomplete="off" novalidate>
+        <div class="cx-champ">
+          <label class="champ-libelle" for="champAutoNom">Nom</label>
+          <input class="champ" id="champAutoNom" maxlength="60" placeholder="ex. Point du matin" required>
+        </div>
+        <div class="cx-champ">
+          <label class="champ-libelle" for="champAutoConsigne">Consigne (la mission)</label>
+          <textarea class="champ auto-consigne" id="champAutoConsigne" rows="5" maxlength="4000" placeholder="ex. Fais le point sur les demandes reçues hier et propose les réponses à envoyer." required></textarea>
+          <span class="champ-aide">Écrivez-la comme un message à l'agent : personne ne sera là pour répondre à ses questions.</span>
+        </div>
+        <div class="auto-quand-champs">
+          <div class="cx-champ">
+            <label class="champ-libelle" for="champAutoFrequence">Fréquence</label>
+            <select class="champ" id="champAutoFrequence">
+              <option value="jour">Tous les jours</option>
+              <option value="semaine">Chaque semaine</option>
+              <option value="mois">Chaque mois</option>
+            </select>
+          </div>
+          <div class="cx-champ" id="blocAutoJourSemaine" hidden>
+            <label class="champ-libelle" for="champAutoJourSemaine">Jour</label>
+            <select class="champ" id="champAutoJourSemaine">
+              <option value="1">Lundi</option><option value="2">Mardi</option><option value="3">Mercredi</option><option value="4">Jeudi</option><option value="5">Vendredi</option><option value="6">Samedi</option><option value="7">Dimanche</option>
+            </select>
+          </div>
+          <div class="cx-champ" id="blocAutoJourMois" hidden>
+            <label class="champ-libelle" for="champAutoJourMois">Jour du mois</label>
+            <input class="champ" id="champAutoJourMois" type="number" min="1" max="31" step="1" inputmode="numeric" value="1">
+          </div>
+          <div class="cx-champ">
+            <label class="champ-libelle" for="champAutoHeure">Heure</label>
+            <input class="champ" id="champAutoHeure" type="time" step="60" value="09:00" required>
+          </div>
+        </div>
+        <span class="champ-aide" id="aideAutoQuand">Heure de Paris.</span>
+        <label class="cx-interrupteur auto-actif-champ">
+          <input type="checkbox" id="champAutoActif">
+          <span class="cx-interrupteur-piste"></span>
+          <span>Active (sinon, en pause)</span>
+        </label>
+        <p class="message-erreur guide-erreur" id="erreurAuto" role="alert"></p>
+        <div class="fenetre-actions">
+          <button class="bouton-secondaire" type="button" data-fermer>Annuler</button>
+          <button class="bouton" type="submit" id="boutonEnregistrerAuto">Enregistrer</button>
         </div>
       </form>
     </div>

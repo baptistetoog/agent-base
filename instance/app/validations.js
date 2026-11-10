@@ -129,10 +129,58 @@ function creer(a, contexte = {}) {
   });
 }
 
+// Carte « Automatisation » (outil proposer_automatisation de mcp-plateforme.js) : l'agent propose une mission
+// automatique ; un admin clique « Activer » (voir activer()). proposition = automatisation déjà vérifiée
+// (automatisations.normaliser) ; texteFrequence = « Chaque lundi à 9 h ».
+function creerAutomatisation(proposition, options = {}, contexte = {}) {
+  const modeRecommande = MODES.includes(options.modeRecommande) ? options.modeRecommande : null;
+  return sousVerrou(() => {
+    const liste = charger();
+    const n = liste.reduce((m, c) => Math.max(m, c.n || 0), 0) + 1;
+    const quand = maintenant();
+    const carte = {
+      n, type: 'automatisation',
+      titre: couper(`Automatisation : ${proposition.nom}`, LIMITES.titre),
+      ceQueJeVaisFaire: couper(`${options.texteFrequence || ''} : ${proposition.consigne}`, LIMITES.ceQueJeVaisFaire),
+      automatisation: proposition, texteFrequence: options.texteFrequence || '',
+      pourquoi: couper(options.pourquoi, 600) || null,
+      modeRecommande,
+      statut: 'en-attente',
+      discussion: contexte.discussion || null, lancement: contexte.lancement || null,
+      demandePar: contexte.demandePar || null,
+      creeLe: quand,
+      historique: [{ quand, qui: 'agent', quoi: 'Automatisation proposée par l\'agent' }],
+    };
+    liste.push(carte);
+    sauver(liste);
+    return { ok: true, carte };
+  });
+}
+
 // ---------- Décisions (serveur) ----------
+
+// « Activer » une carte Automatisation : creerFn(proposition) crée l'automatisation (active) et renvoie
+// { ok, automatisation } ou { erreur }.
+function activer(n, compte, creerFn) {
+  return modifier(n, (c) => {
+    if (c.type !== 'automatisation') return 'Cette demande n\'est pas une automatisation.';
+    if (c.statut !== 'en-attente') return 'Cette demande a déjà été traitée.';
+    const r = creerFn(c.automatisation);
+    if (!r || !r.ok) return (r && r.erreur) || 'L\'automatisation n\'a pas pu être créée.';
+    const quand = maintenant();
+    c.statut = 'executee';
+    c.automatisationId = r.automatisation.id;
+    c.decision = { par: compte.nom, email: compte.email, le: quand };
+    c.executeLe = quand;
+    c.resultat = `Automatisation « ${r.automatisation.nom} » créée et activée${r.automatisation.texteProchaine ? ` : prochain passage ${r.automatisation.texteProchaine}` : ''}.`;
+    c.historique.push({ quand, qui: compte.nom, email: compte.email, quoi: 'Activée : automatisation créée' });
+    return null;
+  });
+}
 
 function valider(n, contenuCorrige, compte) {
   return modifier(n, (c) => {
+    if (c.type === 'automatisation') return 'Cette carte s\'active avec le bouton « Activer ».';
     if (c.statut !== 'en-attente') return 'Cette demande a déjà été traitée.';
     const quand = maintenant();
     let final = c.contenuExact;
@@ -196,5 +244,5 @@ function trouver(n) { return charger().find((c) => c.n === Number(n)) || null; }
 
 module.exports = {
   FICHIER, mode, reglages, changerMode,
-  creer, valider, refuser, finir, supprimer, lister, nombreEnAttente, trouver,
+  creer, creerAutomatisation, activer, valider, refuser, finir, supprimer, lister, nombreEnAttente, trouver,
 };

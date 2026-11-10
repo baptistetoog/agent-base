@@ -139,6 +139,13 @@ button.pastille.attention:hover { border-color: var(--orange); }
   transition: border-color var(--transition), box-shadow var(--transition);
 }
 .champ:focus { outline: none; border-color: var(--accent); box-shadow: var(--anneau); }
+/* Liste déroulante : même allure que les champs (chevron dessiné avec la couleur texte-2 de la charte) */
+select.champ {
+  appearance: none; -webkit-appearance: none; padding-right: 38px; cursor: pointer;
+  background-image: linear-gradient(45deg, transparent 50%, var(--texte-2) 50%), linear-gradient(135deg, var(--texte-2) 50%, transparent 50%);
+  background-position: calc(100% - 20px) 52%, calc(100% - 15px) 52%;
+  background-size: 5px 5px; background-repeat: no-repeat;
+}
 .champ-aide { display: block; font-size: 12.5px; color: var(--texte-2); margin-top: 6px; }
 .champ[readonly] { background: var(--fond); color: var(--texte-2); }
 .champ::placeholder { color: color-mix(in srgb, var(--texte-2) 75%, transparent); }

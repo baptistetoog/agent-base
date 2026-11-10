@@ -11,6 +11,7 @@ const espace = require('./espace');
 const skills = require('./skills');
 const connexions = require('./connexions');
 const validations = require('./validations');
+const automatisations = require('./automatisations');
 
 process.umask(0o077); // tout fichier créé par le serveur n'est lisible que par son propriétaire
 
@@ -241,7 +242,14 @@ espace.init({
   nomOutil: NOM_OUTIL, nomAgent: NOM_AGENT,
   surChangementNom: (nom) => agent.changerNomAgent(nom),
 });
-agent.init({ diffuser, nomAgent: espace.identite().nomAgent });
+agent.init({
+  diffuser, nomAgent: espace.identite().nomAgent,
+  surFinAutomatisation: (id, fin) => automatisations.finir(id, fin),
+  ligneAutomatisations: () => automatisations.ligneAgent(),
+});
+// Le planificateur des automatisations : toutes les 15 s, les automatisations actives arrivées à échéance
+// partent dans la file de l'agent (sans rattrapage des passages manqués pendant un arrêt).
+automatisations.init({ diffuser, lancer: (a) => agent.envoyerAutomatisation(a) });
 
 // Les cartes « À valider » sont créées par app/mcp-plateforme.js (autre processus) : on surveille le fichier
 // et on prévient les pages (onglet « À valider », « ! » de la scène 3D).
@@ -253,17 +261,18 @@ function signalerValidations() {
 fs.watchFile(validations.FICHIER, { interval: 1000 }, (cur, prev) => { if (cur.mtimeMs !== prev.mtimeMs) signalerValidations(); });
 
 // État de la mise en route et voyants du système.
-// Les étapes 2 à 4 arrivent aux étapes suivantes de l'installation : passer « disponible » à true
-// et brancher « fait » quand leur fonction sera installée.
+// Étape 4 (« Lui confier une première mission automatique ») : cochée dès qu'une automatisation est active.
 function etatSysteme() {
   const claude = agent.etatClaude();
   const contexte = espace.missionRemplie(); // « Sa mission » de CONTEXTE.md n'est plus « À compléter »
   const nbConnexions = connexions.nombreQuiMarchent(); // connexions dont le dernier test a réussi
+  const nbAutomatisations = automatisations.actives().length; // automatisations actives
+  const prochaine = automatisations.prochaine();               // { nom, quand, texte } ou null
   const etapes = [
     { id: 'claude', titre: 'Connecter Claude', disponible: true, fait: claude.connecte },
     { id: 'contexte', titre: 'Donner son contexte à l\'agent', disponible: true, fait: contexte },
     { id: 'outil', titre: 'Brancher un premier outil (MCP ou clé API)', disponible: true, fait: nbConnexions > 0 },
-    { id: 'mission', titre: 'Lui confier une première mission automatique', disponible: false, fait: false },
+    { id: 'mission', titre: 'Lui confier une première mission automatique', disponible: true, fait: nbAutomatisations > 0 },
   ];
   return {
     claude,
@@ -278,7 +287,11 @@ function etatSysteme() {
         disponible: true, ok: nbConnexions > 0,
         texte: nbConnexions === 0 ? 'Aucune connexion qui marche' : (nbConnexions === 1 ? '1 connexion qui marche' : `${nbConnexions} connexions qui marchent`),
       },
-      automatisation: { disponible: false, ok: false, texte: 'Bientôt disponible' },
+      automatisation: {
+        disponible: true, ok: Boolean(prochaine),
+        texte: prochaine ? `${prochaine.nom} · ${prochaine.texte}` : 'Aucune automatisation active',
+        quand: prochaine ? prochaine.quand : null,
+      },
     },
   };
 }
@@ -578,6 +591,25 @@ async function traiter(req, res) {
     return json(res, code, reste);
   }
 
+  // ----- Automatisations : lecture pour tous, création / modification / lancement réservés aux admins -----
+  if (chemin === '/api/automatisations' && methode === 'GET') return json(res, 200, { ...automatisations.lister(), admin: estAdmin });
+  if (chemin.startsWith('/api/automatisations') && methode === 'POST') {
+    if (!estAdmin) return json(res, 403, { erreur: 'Seul un admin peut gérer les automatisations.' });
+    let corps;
+    try { corps = await lireCorps(req, 32 * 1024); } catch { return json(res, 413, { erreur: 'Requête trop grosse' }); }
+    let r;
+    if (chemin === '/api/automatisations') {
+      r = corps.id ? automatisations.modifier(corps.id, corps) : automatisations.creer(corps, session.compte, { actif: Boolean(corps.actif) });
+    } else if (chemin === '/api/automatisations/modele') r = automatisations.ajouterModele(corps.modele, session.compte);
+    else if (chemin === '/api/automatisations/actif') r = automatisations.changerActif(corps.id, corps.actif);
+    else if (chemin === '/api/automatisations/lancer') r = automatisations.lancer(corps.id, 'manuel');
+    else if (chemin === '/api/automatisations/supprimer') r = automatisations.supprimer(corps.id);
+    else return json(res, 404, { erreur: 'Introuvable' });
+    if (r.ok) console.log(`Automatisations : ${chemin.split('/').pop()} par ${session.compte.email}.`);
+    const { code, ...reste } = r;
+    return json(res, code || 200, reste);
+  }
+
   // ----- Cartes « À valider » : réservées aux admins -----
   if (chemin.startsWith('/api/validations')) {
     if (!estAdmin) return json(res, 403, { erreur: 'Seul un admin peut voir et décider des validations.' });
@@ -600,9 +632,15 @@ async function traiter(req, res) {
           r = { code: envoi.code, erreur: envoi.erreur };
         }
       }
+    } else if (chemin === '/api/validations/activer') {
+      // Carte « Automatisation » proposée par l'agent : l'automatisation est créée et activée.
+      r = validations.activer(n, session.compte, (p) => automatisations.creer(p, session.compte, { actif: true, origine: 'agent' }));
+      if (r.ok) console.log(`Automatisation de la carte n°${r.carte.n} activée par ${session.compte.email}.`);
     } else if (chemin === '/api/validations/refuser') {
       r = validations.refuser(n, corps.motif, session.compte);
-      if (r.ok) {
+      // Une proposition d'automatisation refusée ne relance pas l'agent (pas de consommation inutile).
+      if (r.ok && r.carte.type === 'automatisation') console.log(`Proposition d'automatisation n°${r.carte.n} refusée par ${session.compte.email}.`);
+      else if (r.ok) {
         const c = r.carte;
         console.log(`Validation n°${c.n} refusée par ${session.compte.email}.`);
         const motif = c.motif ? `Motif : ${c.motif}` : 'Aucun motif donné.';

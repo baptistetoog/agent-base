@@ -35,6 +35,7 @@ const SERVEUR_APPROBATION = { type: 'stdio', command: process.execPath, args: [p
 // Serveur MCP de la plateforme (app/mcp-plateforme.js), toujours branché : outil demander_validation.
 const PROGRAMME_PLATEFORME = path.join(__dirname, 'mcp-plateforme.js');
 const OUTIL_VALIDATION = 'mcp__plateforme__demander_validation';
+const OUTIL_AUTOMATISATION = 'mcp__plateforme__proposer_automatisation';
 
 // Options de chaque lancement de l'agent. La configuration MCP (approbation + plateforme + connexions actives)
 // est écrite dans un fichier temporaire de data/ (600, supprimé après) : voir fichierMCP().
@@ -51,7 +52,7 @@ function optionsAgent(fichierConfig, nomsConnexions, interdits = [], consigne = 
     '--mcp-config', fichierConfig,
     '--permission-prompt-tool', 'mcp__approbation__approuver',
     '--permission-mode', 'acceptEdits',
-    '--allowedTools', 'Read', 'Glob', 'Grep', 'WebSearch', 'WebFetch', 'Skill', OUTIL_VALIDATION, ...nomsConnexions.map((n) => `mcp__${n}__*`),
+    '--allowedTools', 'Read', 'Glob', 'Grep', 'WebSearch', 'WebFetch', 'Skill', OUTIL_VALIDATION, OUTIL_AUTOMATISATION, ...nomsConnexions.map((n) => `mcp__${n}__*`),
     '--disallowedTools', 'Bash', 'Task', 'Agent', 'NotebookEdit', ...interdits,
   ];
   if (consigne) o.push('--append-system-prompt', consigne);
@@ -114,6 +115,9 @@ delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
 
 let diffuser = () => {};
 let NOM_AGENT = 'Agent';
+// Étape 10 (fournis par le serveur) : fin d'un passage d'automatisation, et ligne « [Automatisations actives : …] ».
+let surFinAutomatisation = () => {};
+let ligneAutomatisations = () => '';
 
 // ---------- Petits outils ----------
 
@@ -495,6 +499,7 @@ const OUTILS = {
 function libelleOutil(nom) {
   if (OUTILS[nom]) return OUTILS[nom];
   if (nom === OUTIL_VALIDATION) return 'Demande une validation';
+  if (nom === OUTIL_AUTOMATISATION) return 'Propose une automatisation';
   const m = String(nom || '').match(/^mcp__([a-z0-9-]+)__/);
   if (m && m[1] !== 'approbation') return `Utilise ${m[1]}`;
   return 'Utilise un outil';
@@ -519,6 +524,7 @@ function phraseOutil(nom, entree) {
     case 'ToolSearch': return 'Je regarde quels outils j\'ai…';
     default: {
       if (nom === OUTIL_VALIDATION) return e.titre ? `Je demande une validation : ${court(e.titre, 40)}` : 'Je demande une validation…';
+      if (nom === OUTIL_AUTOMATISATION) return e.nom ? `Je propose l'automatisation « ${court(e.nom, 36)} »…` : 'Je propose une automatisation…';
       const m = String(nom || '').match(/^mcp__([a-z0-9-]+)__(.+)$/);
       if (m && m[2] === 'appel_api' && e.chemin) return `J'appelle ${m[1]} (${court(String(e.methode || '').toUpperCase() + ' ' + e.chemin, 34)})…`;
       if (m && m[2] === 'lire_api' && e.chemin) return `Je consulte ${m[1]} (${court(e.chemin, 34)})…`;
@@ -606,8 +612,9 @@ function messageErreur(c) {
 
 function lancer(travail, relance, idExistant) {
   const jeton = lireJeton();
+  const auto = travail.automatisation || null; // passage d'une automatisation : sa propre discussion
   const c = {
-    id: idExistant || nouvelId(), travail, discussion: etat.discussion,
+    id: idExistant || nouvelId(), travail, discussion: travail.entree.discussion || etat.discussion,
     debut: Date.now(), texte: '', outils: [], erreurs: '', tampon: '',
     resultat: null, sessionId: null, raison: null, separer: false, proc: null, fichiers: [],
   };
@@ -627,7 +634,20 @@ function lancer(travail, relance, idExistant) {
   c.fichierMCP = mcp.fichier;
   const regles = reglesDuLancement(travail);
   const args = optionsAgent(mcp.fichier, mcp.noms, regles.interdits, regles.consigne);
-  if (etat.sessionId) args.push('--resume', etat.sessionId);
+  const reprise = auto ? auto.sessionId : etat.sessionId;
+  if (reprise) args.push('--resume', reprise);
+  // Premier message d'une discussion (principale) : la plateforme ajoute la ligne « [Automatisations actives : …] ».
+  let texteEnvoye = travail.entree.texte;
+  if (!auto && !reprise) { const l = (() => { try { return ligneAutomatisations(); } catch { return ''; } })(); if (l) texteEnvoye += '\n\n' + l; }
+  if (auto) {
+    // L'agent ne lit pas data/ : la plateforme lui donne les demandes qui attendent une validation.
+    let attente = '';
+    try {
+      const l = validations.lister().validations.filter((v) => v.statut === 'en-attente');
+      attente = l.length ? `[Demandes en attente de validation : ${l.length} — ${l.slice(0, 5).map((v) => `n°${v.n} ${v.titre}`).join(' ; ')}]` : '[Demandes en attente de validation : aucune]';
+    } catch { /* rien */ }
+    texteEnvoye = `Automatisation : ${auto.nom}\n\n${travail.entree.texte}${attente ? '\n\n' + attente : ''}`;
+  }
   try {
     c.proc = spawn(CLAUDE, args, { cwd: DOSSIER_AGENT, env: environnement(jeton), stdio: ['pipe', 'pipe', 'pipe'], detached: true });
   } catch (e) {
@@ -637,7 +657,7 @@ function lancer(travail, relance, idExistant) {
     return terminer(c);
   }
   c.proc.stdin.on('error', () => {});
-  c.proc.stdin.end(travail.entree.texte);
+  c.proc.stdin.end(texteEnvoye);
   c.minuterie = setTimeout(() => { c.raison = 'delai'; tuer(c.proc); }, DUREE_MAX);
   c.proc.stdout.setEncoding('utf8');
   c.proc.stdout.on('data', (d) => {
@@ -656,10 +676,10 @@ function lancer(travail, relance, idExistant) {
     supprimerFichierMCP(c.fichierMCP);
     if (c.tampon.trim()) traiterLigne(c, c.tampon);
     // La conversation à reprendre n'existe plus : on repart d'une conversation neuve, une seule fois.
-    if (!relance && !c.raison && etat.sessionId && !c.resultat && !c.texte
+    if (!relance && !c.raison && reprise && !c.resultat && !c.texte
         && /no conversation found|session/i.test(c.erreurs)) {
-      etat.sessionId = null;
-      sauverEtat();
+      if (auto) auto.sessionId = null;
+      else { etat.sessionId = null; sauverEtat(); }
       return lancer(travail, true, c.id);
     }
     c.code = code;
@@ -707,6 +727,21 @@ function terminer(c) {
     validations.finir(c.travail.validation, ok, texte || (outilAppele ? '' : 'L\'agent n\'a appelé aucun outil.'));
     console.log(`Validation n°${c.travail.validation} : ${ok ? 'exécutée' : 'échec'}.`);
     diffuser('validations', { enAttente: validations.nombreEnAttente() });
+  }
+  // Passage d'une automatisation : résultat en une ligne dans l'automatisation, et une ligne discrète
+  // « 🕘 <nom> : <résultat> » dans la discussion principale.
+  if (c.travail.automatisation) {
+    const a = c.travail.automatisation;
+    let fin = null;
+    try { fin = surFinAutomatisation(a.id, { statut: statutFin, texte, sessionId: c.sessionId, quand: entree.quand, declencheur: a.declencheur }); } catch (e) { console.error('Automatisation :', e.message); }
+    const resume = (fin && fin.dernierResultat) || court(texte, 160);
+    const ligne = {
+      type: 'message', id: nouvelId(), discussion: etat.discussion, role: 'systeme', quand: maintenant(),
+      qui: { nom: `Automatisation : ${a.nom}` }, texte: `🕘 ${a.nom} : ${resume}`,
+      automatisation: { id: a.id, nom: a.nom, discussion: c.discussion, statut: statutFin },
+    };
+    try { ajouterHistorique(ligne); } catch (e) { console.error('Historique :', e.message); }
+    diffuser('message', ligne);
   }
   etat.courant = null;
   diffuser('fin', entree);
@@ -830,6 +865,8 @@ function annulerRemplissage() {
 function init(options) {
   diffuser = options.diffuser || diffuser;
   NOM_AGENT = options.nomAgent || NOM_AGENT;
+  if (options.surFinAutomatisation) surFinAutomatisation = options.surFinAutomatisation;
+  if (options.ligneAutomatisations) ligneAutomatisations = options.ligneAutomatisations;
   chargerEtat();
 }
 
@@ -886,6 +923,24 @@ function envoyerDecision(texte, compte, n, options = {}) {
   return { code: 200, ok: true, message: entree };
 }
 
+// Passage d'une automatisation (planificateur ou « Lancer maintenant ») : mis dans la file comme un message
+// normal, signé « Automatisation : <nom> », mais dans sa propre discussion (auto-<id>), reprise d'un passage à l'autre.
+function envoyerAutomatisation(a) {
+  if (!lireJeton()) return { code: 409, erreur: 'Claude n\'est pas connecté : l\'automatisation ne peut pas tourner.' };
+  if (etat.file.length >= 20) return { code: 429, erreur: 'Trop de messages en attente. Réessayez plus tard.' };
+  const qui = { nom: `Automatisation : ${a.nom}` };
+  const entree = {
+    type: 'message', id: nouvelId(), discussion: `auto-${a.id}`, role: 'utilisateur',
+    quand: maintenant(), qui, texte: a.consigne, automatisation: { id: a.id, nom: a.nom, declencheur: a.declencheur },
+  };
+  ajouterHistorique(entree);
+  const occupe = Boolean(etat.courant);
+  etat.file.push({ entree, compte: { email: '', nom: qui.nom, role: 'automatisation' }, automatisation: { ...a } });
+  if (occupe) diffuser('file', { n: etat.file.length });
+  else suivant();
+  return { code: 200, ok: true, enAttente: occupe ? etat.file.length : 0 };
+}
+
 function arreter() {
   if (!etat.courant) return false;
   etat.courant.raison = 'arret';
@@ -897,9 +952,10 @@ function nouvelleDiscussion(compte) {
   // Validations accordées encore dans la file : elles ne seront pas exécutées.
   for (const t of etat.file) if (t.validation) validations.finir(t.validation, false, 'Non exécutée : une nouvelle discussion a été ouverte avant son tour.');
   if (etat.file.some((t) => t.validation)) diffuser('validations', { enAttente: validations.nombreEnAttente() });
-  etat.file = [];
-  diffuser('file', { n: 0 });
-  arreter();
+  // Les passages d'automatisation (autres discussions) restent dans la file et ne sont pas arrêtés.
+  etat.file = etat.file.filter((t) => t.automatisation);
+  diffuser('file', { n: etat.file.length });
+  if (etat.courant && !etat.courant.travail.automatisation) arreter();
   etat.sessionId = null;
   etat.discussion = nouvelId();
   sauverEtat();
@@ -923,7 +979,7 @@ function discussion() {
 }
 
 module.exports = {
-  init, envoyer, envoyerDecision, arreter, nouvelleDiscussion, discussion, statut, enCours,
+  init, envoyer, envoyerDecision, envoyerAutomatisation, arreter, nouvelleDiscussion, discussion, statut, enCours,
   etatClaude, connecterClaude, deconnecterClaude, nettoyerCle,
   demarrerConnexion, finirConnexion, changerNomAgent,
   remplirDepuisSite, etatRemplissage, annulerRemplissage,

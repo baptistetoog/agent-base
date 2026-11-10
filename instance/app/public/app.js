@@ -221,8 +221,14 @@ async function chargerEtat() {
 
 function rendreMiseEnRoute(mer) {
   const carte = $('#miseEnRoute');
-  if (!mer || mer.terminee) { carte.hidden = true; return; }
+  if (!mer) { carte.hidden = true; return; }
   carte.hidden = false;
+  // Les 4 étapes sont cochées : la carte se replie en une ligne « ✅ Votre agent est prêt ».
+  const prete = Boolean(mer.terminee);
+  carte.classList.toggle('prete', prete);
+  $('#merPrete').hidden = !prete;
+  $('#merEntete').hidden = prete;
+  if (prete) { $('#merEtapes').hidden = true; $('#merAction').hidden = true; return; }
   const faites = mer.etapes.filter((e) => e.fait).length;
   const memo = stockage('miseEnRoute') || { faites: -1, replie: false };
   if (memo.faites >= 0 && faites > memo.faites) memo.replie = false; // une étape franchie : on redéplie
@@ -236,7 +242,7 @@ function rendreMiseEnRoute(mer) {
   liste.replaceChildren();
   let premiere = true;
   let action = null;
-  const COURTS = { claude: 'Claude', contexte: 'Contexte', outil: 'Outil', mission: 'Mission' };
+  const COURTS = { claude: 'Claude', contexte: 'Contexte', outil: 'Outil', mission: 'Automatique' };
   mer.etapes.forEach((etape, i) => {
     const li = el('li', 'mer-etape');
     const classe = etape.fait ? 'fait' : (!etape.disponible ? 'bientot' : (premiere ? 'a-faire' : ''));
@@ -270,6 +276,18 @@ function rendreMiseEnRoute(mer) {
       } else {
         li.append(el('span', 'pastille attention', 'À faire par un admin'));
         if (!action) action = { texte: 'Un admin doit brancher un premier outil.' };
+      }
+    } else if (etape.id === 'mission') {
+      if (estAdmin()) {
+        const b = el('button', 'bouton bouton-petit');
+        b.append(el('span', 'long', 'Ajouter une automatisation'), el('span', 'court', 'Ajouter'));
+        b.type = 'button';
+        b.addEventListener('click', () => allerA('automatisations'));
+        li.append(b);
+        if (!action) action = { texte: 'Confiez à l\'agent une première mission automatique.', bouton: 'Ajouter', clic: () => allerA('automatisations') };
+      } else {
+        li.append(el('span', 'pastille attention', 'À faire par un admin'));
+        if (!action) action = { texte: 'Un admin doit activer une première automatisation.' };
       }
     } else if (etape.id === 'claude') {
       if (estAdmin()) {
@@ -372,6 +390,16 @@ function blocOutils(outils, actif) {
 }
 
 function elementMessage(m) {
+  // Passage d'une automatisation : une ligne discrète « 🕘 Point du matin : rien de nouveau ».
+  if (m.role === 'systeme') {
+    const ligne = el('div', 'ligne ligne-systeme' + (m.automatisation && m.automatisation.statut && m.automatisation.statut !== 'ok' ? ' echec' : ''));
+    ligne.dataset.id = m.id;
+    const t = el('p', 'ligne-systeme-texte');
+    t.append(el('span', '', m.texte || ''), el('time', '', heure(m.quand)));
+    t.title = 'Passage automatique · ' + dateLongue(m.quand);
+    ligne.append(t);
+    return ligne;
+  }
   const agent = m.role === 'agent';
   const moi = !agent && m.qui && app.moi && m.qui.email === app.moi.email;
   const ligne = el('div', 'ligne ' + (agent ? 'agent' : (moi ? 'moi' : 'autre')));
@@ -952,7 +980,7 @@ async function garderProposition() {
 // Aller à une section des Réglages (depuis la mise en route ou le menu).
 function allerA(cible) {
   choisirOnglet('reglages');
-  const sections = { fichiers: '#sectionFichiers', skills: '#sectionSkills', connexions: '#sectionConnexions' };
+  const sections = { fichiers: '#sectionFichiers', skills: '#sectionSkills', connexions: '#sectionConnexions', automatisations: '#sectionAutomatisations' };
   const section = $(sections[cible] || '#sectionContexte');
   if (cible === 'contexte') choisirSous('contexte');
   // On fait défiler la colonne des Réglages seulement (jamais la page entière).
@@ -1451,6 +1479,188 @@ function retourOAuth() {
   if (estAdmin()) { allerA('connexions'); if (q.get('oauth') === 'ok' && nom) { cx.enTest.add(nom); setTimeout(() => { cx.enTest.delete(nom); chargerConnexions(); }, 8000); } }
 }
 
+// ---------- Automatisations ----------
+// Les missions que l'agent fait tout seul à heure fixe (data/automatisations.json, heure de Paris).
+// Tout le monde les lit ; un admin les crée, les modifie, les met en pause, les lance, les supprime.
+
+const au = { liste: [], modeles: [], admin: false, edition: null, enLancement: new Set() };
+const STATUTS_PASSAGE = { ok: '', erreur: 'Erreur', arrete: 'Arrêté', delai: 'Trop long' };
+
+async function chargerAutomatisations() {
+  try {
+    const d = await api('/api/automatisations');
+    au.liste = d.automatisations || [];
+    au.modeles = d.modeles || [];
+    au.admin = Boolean(d.admin);
+    rendreAutomatisations();
+  } catch { /* rien */ }
+}
+
+function boutonAuto(classe, id, texte, clic, court) {
+  const b = el('button', classe);
+  b.type = 'button';
+  b.append(icone(id));
+  if (court) b.append(el('span', 'long', texte), el('span', 'court', court)); // libellé court sur mobile
+  else b.append(el('span', '', texte));
+  b.addEventListener('click', clic);
+  return b;
+}
+
+function rendreAutomatisations() {
+  const ul = $('#listeAutos');
+  ul.replaceChildren();
+  if (!au.liste.length) {
+    listeVide(ul, 'Aucune automatisation pour l\'instant', au.admin ? 'Ajoutez un modèle ci-dessous, créez la vôtre, ou laissez l\'agent vous en proposer après un court entretien.' : 'Un admin peut en ajouter.');
+  }
+  for (const a of au.liste) {
+    const li = el('li', 'auto ' + (a.enCours ? 'en-cours' : (a.actif ? 'active' : 'pause')));
+    const haut = el('div', 'auto-haut');
+    const ic = el('span', 'auto-icone');
+    ic.append(icone('i-horloge'));
+    const infos = el('div', 'auto-infos');
+    const l1 = el('div', 'auto-ligne');
+    const [classe, texte] = a.enCours ? ['travail', 'En cours'] : (a.actif ? ['ok', 'Active'] : ['', 'En pause']);
+    l1.append(el('span', 'auto-nom', a.nom), el('span', 'pastille ' + classe, texte));
+    const quand = el('span', 'auto-quand', a.texteFrequence);
+    if (a.actif && a.texteProchaine) quand.append(el('span', 'auto-prochaine', ` · prochain passage ${a.texteProchaine}`));
+    infos.append(l1, quand);
+    haut.append(ic, infos);
+    if (au.admin) {
+      const lab = el('label', 'cx-interrupteur auto-interrupteur');
+      lab.title = a.actif ? 'Mettre en pause' : 'Activer';
+      const caseA = el('input');
+      caseA.type = 'checkbox';
+      caseA.checked = a.actif;
+      caseA.setAttribute('aria-label', (a.actif ? 'Mettre en pause ' : 'Activer ') + a.nom);
+      caseA.addEventListener('change', () => changerActifAuto(a, caseA));
+      lab.append(caseA, el('span', 'cx-interrupteur-piste'), el('span', 'auto-interrupteur-texte', a.actif ? 'Active' : 'En pause'));
+      haut.append(lab);
+    }
+    li.append(haut);
+    const consigne = el('p', 'auto-consigne', a.consigne);
+    consigne.title = a.consigne;
+    li.append(consigne);
+    const dernier = el('p', 'auto-dernier' + (a.dernierStatut && a.dernierStatut !== 'ok' ? ' echec' : ''));
+    if (a.dernierPassage) {
+      dernier.append(el('span', 'auto-dernier-quand', `Dernier passage ${quandCourt(a.dernierPassage)}${a.dernierDeclencheur === 'manuel' ? ' (lancé à la main)' : ''}`));
+      const res = (STATUTS_PASSAGE[a.dernierStatut] ? STATUTS_PASSAGE[a.dernierStatut] + ' · ' : '') + (a.dernierResultat || '');
+      dernier.append(el('span', 'auto-dernier-resultat', res));
+    } else {
+      dernier.append(el('span', 'auto-dernier-quand', 'Pas encore passée'));
+    }
+    li.append(dernier);
+    if (au.admin) {
+      const actions = el('div', 'cx-actions auto-actions');
+      const lancement = a.enCours || au.enLancement.has(a.id);
+      const b = boutonAuto('bouton-secondaire bouton-petit', 'i-test', lancement ? 'En cours…' : 'Lancer maintenant', () => lancerAuto(a), lancement ? 'En cours…' : 'Lancer');
+      b.disabled = lancement || !app.claude.connecte;
+      if (!app.claude.connecte) b.title = 'Claude n\'est pas connecté';
+      actions.append(b,
+        boutonAuto('bouton-secondaire bouton-petit', 'i-crayon', 'Modifier', () => ouvrirAuto(a)),
+        boutonAuto('bouton-fantome bouton-petit bouton-danger cx-supprimer', 'i-poubelle', 'Supprimer', () => supprimerAuto(a)));
+      actions.lastElementChild.setAttribute('aria-label', 'Supprimer ' + a.nom);
+      li.append(actions);
+    }
+    ul.append(li);
+  }
+  // Modèles prêts à ajouter (admin)
+  const um = $('#listeModeles');
+  um.replaceChildren();
+  for (const m of au.modeles) {
+    const li = el('li', 'modele');
+    const t = el('div', 'modele-textes');
+    t.append(el('span', 'modele-nom', m.nom), el('span', 'modele-quand', m.texteFrequence));
+    const c = el('span', 'modele-consigne', m.consigne);
+    c.title = m.consigne;
+    t.append(c);
+    li.append(t);
+    const deja = au.liste.some((a) => a.modele === m.id || a.nom === m.nom);
+    if (deja) li.append(el('span', 'pastille ok', 'Ajouté'));
+    else {
+      const b = boutonAuto('bouton-secondaire bouton-petit', 'i-plus', 'Ajouter', async () => {
+        b.disabled = true;
+        try { await api('/api/automatisations/modele', { corps: { modele: m.id } }); toast(`« ${m.nom} » ajouté, en pause.`, 'ok'); await chargerAutomatisations(); }
+        catch (e) { toast(e.message, 'erreur'); b.disabled = false; }
+      });
+      li.append(b);
+    }
+    um.append(li);
+  }
+  $('#modelesAutos').hidden = !au.admin || !au.modeles.length;
+}
+
+async function changerActifAuto(a, caseA) {
+  caseA.disabled = true;
+  try {
+    const r = await api('/api/automatisations/actif', { corps: { id: a.id, actif: caseA.checked } });
+    toast(r.automatisation.actif ? `« ${a.nom} » activée : ${r.automatisation.texteProchaine || ''}.` : `« ${a.nom} » en pause.`, 'ok');
+    await chargerAutomatisations();
+    chargerEtatPlusTard();
+  } catch (e) { caseA.checked = !caseA.checked; toast(e.message, 'erreur'); }
+  finally { caseA.disabled = false; }
+}
+
+async function lancerAuto(a) {
+  au.enLancement.add(a.id);
+  rendreAutomatisations();
+  try {
+    await api('/api/automatisations/lancer', { corps: { id: a.id } });
+    toast(`« ${a.nom} » lancée : le résultat s'affichera ici et dans la discussion.`, 'ok');
+  } catch (e) { toast(e.message, 'erreur'); }
+  finally { au.enLancement.delete(a.id); chargerAutomatisations(); }
+}
+
+async function supprimerAuto(a) {
+  const ok = await confirmer('Supprimer cette automatisation ?', `« ${a.nom} » ne passera plus. Cette action est définitive.`, 'Supprimer');
+  if (!ok) return;
+  try { await api('/api/automatisations/supprimer', { corps: { id: a.id } }); toast('Automatisation supprimée.', 'ok'); await chargerAutomatisations(); chargerEtatPlusTard(); }
+  catch (e) { toast(e.message, 'erreur'); }
+}
+
+function majChampsQuand() {
+  const f = $('#champAutoFrequence').value;
+  $('#blocAutoJourSemaine').hidden = f !== 'semaine';
+  $('#blocAutoJourMois').hidden = f !== 'mois';
+  $('#aideAutoQuand').textContent = f === 'mois' ? 'Heure de Paris. Un 29, 30 ou 31 : le dernier jour des mois plus courts.' : 'Heure de Paris.';
+}
+
+function ouvrirAuto(a) {
+  au.edition = a ? a.id : null;
+  $('#titreAuto').textContent = a ? 'Modifier l\'automatisation' : 'Nouvelle automatisation';
+  $('#champAutoNom').value = a ? a.nom : '';
+  $('#champAutoConsigne').value = a ? a.consigne : '';
+  $('#champAutoFrequence').value = a ? a.frequence : 'jour';
+  $('#champAutoJourSemaine').value = String(a && a.frequence === 'semaine' ? a.jour : 1);
+  $('#champAutoJourMois').value = String(a && a.frequence === 'mois' ? a.jour : 1);
+  $('#champAutoHeure').value = a ? a.heure : '09:00';
+  $('#champAutoActif').checked = a ? a.actif : false;
+  $('#erreurAuto').textContent = '';
+  majChampsQuand();
+  ouvrirFenetre('fenetreAuto');
+}
+
+async function enregistrerAuto(ev) {
+  ev.preventDefault();
+  const f = $('#champAutoFrequence').value;
+  const corps = {
+    nom: $('#champAutoNom').value, consigne: $('#champAutoConsigne').value, frequence: f,
+    jour: f === 'semaine' ? $('#champAutoJourSemaine').value : (f === 'mois' ? $('#champAutoJourMois').value : null),
+    heure: $('#champAutoHeure').value, actif: $('#champAutoActif').checked,
+  };
+  if (au.edition) corps.id = au.edition;
+  const b = $('#boutonEnregistrerAuto');
+  b.disabled = true;
+  $('#erreurAuto').textContent = '';
+  try {
+    const r = await api('/api/automatisations', { corps });
+    fermerFenetre('fenetreAuto');
+    toast(r.automatisation.actif ? `« ${r.automatisation.nom} » enregistrée : prochain passage ${r.automatisation.texteProchaine}.` : `« ${r.automatisation.nom} » enregistrée (en pause).`, 'ok');
+    await chargerAutomatisations();
+    chargerEtatPlusTard();
+  } catch (e) { $('#erreurAuto').textContent = e.message; }
+  finally { b.disabled = false; }
+}
+
 // ---------- Mode de l'agent : « Propose » / « Agit seul » ----------
 
 function rendreMode(m) {
@@ -1526,7 +1736,61 @@ function quandCourt(iso) {
   return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }) + ' ' + d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 }
 
+// Carte « Automatisation » proposée par l'agent (outil proposer_automatisation) : bouton « Activer ».
+function carteAutomatisation(v) {
+  const enAttente = v.statut === 'en-attente';
+  const a = v.automatisation || {};
+  const li = el('li', 'validation carte carte-auto ' + v.statut);
+  li.dataset.n = v.n;
+  const haut = el('div', 'validation-haut');
+  const statuts = { 'en-attente': ['attention', 'À activer'], executee: ['ok', 'Activée'], refusee: ['erreur', 'Refusée'], echec: ['erreur', 'Échec'] };
+  const [classe, texte] = statuts[v.statut] || statuts['en-attente'];
+  const type = el('span', 'validation-type');
+  type.append(icone('i-horloge'), el('span', '', `Automatisation · n°${v.n}`));
+  haut.append(type, el('span', 'pastille ' + classe, texte));
+  li.append(haut, el('h3', 'validation-titre', a.nom || v.titre));
+  li.append(el('p', 'validation-quand', v.texteFrequence || ''));
+  if (v.pourquoi) li.append(el('p', 'validation-quoi', v.pourquoi));
+  const lab = el('p', 'champ-libelle validation-libelle', 'Consigne donnée à l\'agent à chaque passage');
+  li.append(lab, el('pre', 'validation-contenu-lu', a.consigne || ''));
+  if (v.modeRecommande) {
+    const libelles = { propose: '« Propose »', seul: '« Agit seul »' };
+    const p = el('p', 'validation-mode' + (v.modeRecommande !== app.mode ? ' different' : ''));
+    p.append(icone(v.modeRecommande === 'seul' ? 'i-eclair' : 'i-main'));
+    const t = el('span');
+    t.append(document.createTextNode('Mode recommandé : '), el('strong', '', libelles[v.modeRecommande]), document.createTextNode(
+      v.modeRecommande === app.mode ? ' (c\'est déjà le mode actuel).' : `. Pour l'appliquer, utilisez vous-même l'interrupteur sous le personnage (mode actuel : ${libelles[app.mode]}).`));
+    p.append(t);
+    li.append(p);
+  }
+  if (enAttente) {
+    const actions = el('div', 'validation-actions');
+    const bRefuser = el('button', 'bouton-secondaire bouton-danger', 'Refuser');
+    bRefuser.type = 'button';
+    const bActiver = el('button', 'bouton');
+    bActiver.type = 'button';
+    bActiver.append(icone('i-coche'), el('span', '', 'Activer'));
+    actions.append(bRefuser, bActiver);
+    li.append(actions);
+    bActiver.addEventListener('click', () => deciderValidation(v.n, 'activer', {}, [bActiver, bRefuser]));
+    bRefuser.addEventListener('click', () => deciderValidation(v.n, 'refuser', {}, [bActiver, bRefuser]));
+  } else if (v.resultat) {
+    const p = el('div', 'validation-resultat md');
+    p.innerHTML = markdownEnHTML(v.resultat);
+    li.append(p);
+  }
+  const hist = el('ul', 'validation-historique');
+  for (const h of (v.historique || [])) {
+    const item = el('li');
+    item.append(el('time', '', quandCourt(h.quand)), document.createTextNode(` · ${h.qui === 'agent' ? (app.marque ? app.marque.nomAgent : 'L\'agent') : h.qui} · ${h.quoi}`));
+    hist.append(item);
+  }
+  li.append(hist);
+  return li;
+}
+
 function carteValidation(v) {
+  if (v.type === 'automatisation') return carteAutomatisation(v);
   const enAttente = v.statut === 'en-attente';
   const li = el('li', 'validation carte ' + v.statut);
   li.dataset.n = v.n;
@@ -1626,8 +1890,10 @@ async function deciderValidation(n, quoi, corps, elements) {
   try {
     await api('/api/validations/' + quoi, { corps: { n, ...corps } });
     brouillons.delete(n);
-    toast(quoi === 'valider' ? `Demande n°${n} validée : l'agent l'exécute.` : `Demande n°${n} refusée.`, 'ok');
+    const textes = { valider: `Demande n°${n} validée : l'agent l'exécute.`, activer: `Automatisation activée (proposition n°${n}).`, refuser: `Demande n°${n} refusée.` };
+    toast(textes[quoi] || 'C\'est fait.', 'ok');
     await chargerValidations();
+    if (quoi === 'activer') { chargerAutomatisations(); chargerEtatPlusTard(); }
   } catch (e) {
     toast(e.message, 'erreur');
     elements.forEach((x) => { x.disabled = false; });
@@ -1684,6 +1950,7 @@ function ouvrirFlux() {
   });
   flux.addEventListener('marque', (e) => changerMarque(lire(e)));
   flux.addEventListener('skills', () => chargerSkills());
+  flux.addEventListener('automatisations', () => { chargerAutomatisations(); chargerEtatPlusTard(); });
   flux.addEventListener('connexions', () => { if (!cx.enTest.size) chargerConnexions(); chargerEtatPlusTard(); });
   flux.addEventListener('contexte', () => { chargerContexte(); chargerEtatPlusTard(); });
   flux.addEventListener('reglages', (e) => { const d = lire(e); if (d) { rendreMode(d.mode); if (!$('#vueValidations').hidden) rendreValidations(); } });
@@ -1733,7 +2000,7 @@ function choisirOnglet(nom) {
   document.body.classList.toggle('sur-reglages', nom === 'reglages');
   document.body.classList.toggle('sur-validations', nom === 'validations');
   if (nom === 'validations') chargerValidations();
-  if (nom === 'reglages') { chargerEtat(); chargerContexte(); chargerFichiers(); chargerSkills(); chargerConnexions(); if (ctx.sous === 'documents') chargerDocuments(); }
+  if (nom === 'reglages') { chargerEtat(); chargerContexte(); chargerFichiers(); chargerSkills(); chargerConnexions(); chargerAutomatisations(); if (ctx.sous === 'documents') chargerDocuments(); }
   if (nom !== 'discussion') basculerMenuSkills(false);
   if (nom === 'discussion') requestAnimationFrame(() => defiler(true));
 }
@@ -1993,6 +2260,11 @@ function brancherInterface() {
     else if (!$('#menu').hidden) basculerMenu(false);
   });
 
+  // Automatisations
+  $('#boutonNouvelleAuto').addEventListener('click', () => ouvrirAuto(null));
+  $('#formAuto').addEventListener('submit', enregistrerAuto);
+  $('#champAutoFrequence').addEventListener('change', majChampsQuand);
+
   // Mise en route : déplier / replier
   $('#merEntete').addEventListener('click', () => {
     const memo = stockage('miseEnRoute') || { faites: 0, replie: false };
@@ -2125,7 +2397,7 @@ async function demarrer() {
   brancherInterface();
   creerScene();
   rendreMode(app.mode);
-  await Promise.all([chargerEtat(), chargerDiscussion(), chargerSkills(), chargerValidations()]);
+  await Promise.all([chargerEtat(), chargerDiscussion(), chargerSkills(), chargerValidations(), chargerAutomatisations()]);
   ouvrirFlux();
   retourOAuth();
 }
