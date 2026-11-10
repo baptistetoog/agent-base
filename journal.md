@@ -18,3 +18,9 @@ Méthode : chaque prompt est collé tel quel dans une session Claude vierge. Qua
 | 9 · Validations | 10/11 | Réussi (6 messages : carte sans appel en Propose, validation → exécution HTTP 200, refus reçu et mémorisé, Agit seul direct, membre refusé) | Précisé : mode rappelé à l'agent, liste des outils d'action dans demander_validation, seul l'outil prévu ouvert, tri par premier verbe, verrou d'écriture, cartes en échec, admins seuls, retirer le motif de test de la mémoire. |
 | 10 · Automatisations | 10/11 | Réussi (5 lancements : passage planifié à l'heure dans sa propre discussion, ligne 🕘, Lancer maintenant, double lancement refusé, entretien puis carte Activer qui crée l'automatisation, membre refusé) ; 4/4 vu par simulation de l'état | Précisé : consignes des modèles sans lecture de data/, demandes en attente passées dans le message, « actives » au lieu de « existe », mode_recommande, discussion reprise, résultat = première ligne, fins de mois, pas de nouvel entretien. |
 | 0 · Serveur et adresse | 10/11 | Réussi (vérifications en lecture seule : Ubuntu 24.04.5, IP, 7 Go, 39 Go libres, sous-domaine résolu) | Ajoutée à la demande de Baptiste : le VPS est déjà branché (ssh vps) au module précédent ; on vérifie le serveur et on crée le sous-domaine dès le début (propagation). L'étape 4 ne fait plus que vérifier. |
+
+## Rejeu de zéro (10/11, utilisateur agentrejeu, port 4920, agentrejeu.toog-expertise.app)
+
+| Étape | Résultat | Écarts |
+|---|---|---|
+| 0, 1, 3 | Réussi (une session pour les trois) | Précisé au prompt 3 : fichiers publics, droits 600, PORT et Restart dans le service. |

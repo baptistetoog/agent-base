@@ -17,7 +17,7 @@ Voici les paramètres du projet. Toutes les étapes suivantes s'y réfèrent : r
 
 Organisation des dossiers (dans /home/{UTILISATEUR}) :
 - app/ : le code de l'outil (serveur + pages)
-- data/ : les données privées (comptes, sessions, historique, connexions), droits 700
+- data/ : les données privées (comptes, sessions, historique, connexions), droits 700 sur le dossier et 600 sur les fichiers
 - agent/ : le dossier de travail de l'agent (on le remplira plus tard)
 - PROJET.md : la mémoire du projet (voir plus bas)
 
@@ -28,6 +28,7 @@ Le serveur :
 - Le nom de l'outil et celui de l'agent ne sont écrits en dur nulle part : ils viennent des variables NOM_OUTIL et NOM_AGENT du service systemd, exposées aux pages par une petite route publique GET /api/marque (nom de l'outil, nom de l'agent, initiale).
 
 L'espace de connexion :
+- Les seuls fichiers publics (sans connexion) : la page de connexion, ses fichiers CSS et JS, les polices et /api/marque.
 - Page app/public/connexion.html : e-mail + mot de passe, sobre, propre, adaptée au mobile. Elle suit la charte neutre des paramètres. En haut, le carré arrondi avec l'initiale et le nom de l'outil.
 - Les comptes sont dans data/comptes.json : e-mail, nom, rôle (« admin » ou « membre »), mot de passe haché avec crypto.scrypt et un sel unique (jamais en clair).
 - Session par cookie : HttpOnly, Secure, SameSite=Lax, valable 30 jours, sessions stockées dans data/sessions.json (seulement une empreinte du cookie ; le serveur relit le fichier quand il change, pour qu'une suppression de compte ferme bien ses sessions).
@@ -41,7 +42,7 @@ L'espace de connexion :
 - Une fois connecté, la page app/public/index.html affiche pour l'instant : « Bonjour <prénom>, ton agent arrive bientôt. »
 
 Le service :
-- Un service systemd nommé {UTILISATEUR}-app qui lance le serveur en tant que {UTILISATEUR}, redémarre tout seul en cas d'arrêt et démarre avec le serveur, avec Environment="NOM_OUTIL={NOM_OUTIL}" et Environment="NOM_AGENT={NOM_AGENT}" (entre guillemets à cause des espaces). Ajoute les protections systemd simples : NoNewPrivileges, PrivateTmp, ProtectSystem=strict avec écriture autorisée seulement dans /home/{UTILISATEUR}.
+- Un service systemd nommé {UTILISATEUR}-app qui lance le serveur en tant que {UTILISATEUR}, redémarre tout seul en cas d'arrêt (Restart=always) et démarre avec le serveur, avec Environment="PORT={PORT}", avec Environment="NOM_OUTIL={NOM_OUTIL}" et Environment="NOM_AGENT={NOM_AGENT}" (entre guillemets à cause des espaces). Ajoute les protections systemd simples : NoNewPrivileges, PrivateTmp, ProtectSystem=strict avec écriture autorisée seulement dans /home/{UTILISATEUR}.
 - Le service charge le fichier /home/{UTILISATEUR}/.claude-token.env s'il existe (on s'en servira pour l'agent).
 
 PROJET.md : écris-y en français simple la section « Paramètres » (ci-dessus), l'organisation des dossiers, comment démarrer/arrêter/voir les journaux du service, et ce qui a été fait à cette étape. À chaque étape suivante, on le relira avant de commencer et on le mettra à jour à la fin.
