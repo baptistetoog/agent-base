@@ -25,3 +25,7 @@ Méthode : chaque prompt est collé tel quel dans une session Claude vierge. Qua
 |---|---|---|
 | 0, 1, 3 | Réussi (une session pour les trois) | Précisé au prompt 3 : fichiers publics, droits 600, PORT et Restart dans le service. |
 | 4 à 10 | Non rejoué : rejeu arrêté par Baptiste ; instance agentrejeu supprimée du serveur le 10/11. | |
+
+## Mise en place courte (11/11, demande de Baptiste)
+
+Étape 0 retirée ; étape 1 = adresse (DNS) + environnement ; étapes 3 et 4 reprennent le dépôt commun à l'identique (etape-03, etape-04) ; plus aucune mention de Linux ou Ubuntu ; démo sur agents.lecrystana.com. Prompts 1 et 3 testés sur un utilisateur temporaire (agenttest, supprimé ensuite) : outil identique, connexion, no-cache + ETag, 304 OK. Précisé : seules les valeurs du service changent, dossier temporaire, réglage du cache dans server.js.
