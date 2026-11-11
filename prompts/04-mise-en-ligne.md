@@ -2,7 +2,7 @@
 
 ## Avant : le sous-domaine
 
-Il a été créé à l'étape 0 (enregistrement A vers l'IP du serveur). Ce prompt vérifie qu'il pointe bien sur le serveur avant de poser le cadenas.
+Il a été créé à l'étape 1 (enregistrement A vers l'IP du serveur). Ce prompt vérifie qu'il pointe bien sur le serveur avant de poser le cadenas.
 
 Si ce n'est pas déjà fait à l'étape 3, créer son compte admin (le mot de passe est tapé par l'apprenant, il ne s'affiche pas) :
 
@@ -13,17 +13,15 @@ ssh -t vps 'sudo -iu {UTILISATEUR} node app/creer-compte.js {EMAIL_ADMIN} "Prén
 ## Puis ce prompt
 
 ```
-Mon serveur est accessible par `ssh vps` (root). Lis d'abord /home/{UTILISATEUR}/PROJET.md pour comprendre le projet.
+Mon serveur est accessible par `ssh vps` (root). Lis d'abord /home/{UTILISATEUR}/PROJET.md.
 
-J'ai créé le sous-domaine {DOMAINE} qui pointe vers l'adresse IP du serveur. Mets l'outil en ligne :
-1. Vérifie que {DOMAINE} pointe bien vers ce serveur (compare avec l'IP publique du serveur). Si ce n'est pas encore le cas, arrête-toi et dis-moi d'attendre.
-2. Crée une configuration nginx dédiée, dans un nouveau fichier à son nom, qui envoie {DOMAINE} vers 127.0.0.1:{PORT}. Elle doit supporter le temps réel (Server-Sent Events : pas de mise en tampon, délai de lecture de 24 h), les envois de fichiers jusqu'à 20 Mo, et transmettre l'IP réelle du visiteur (X-Forwarded-For) pour le blocage des mots de passe.
-3. Obtiens un certificat HTTPS Let's Encrypt avec certbot pour ce sous-domaine seulement (même méthode que les autres certificats du serveur s'il y en a, sinon `certbot --nginx` ; adresse e-mail : {EMAIL_ADMIN}), avec le rechargement de nginx au renouvellement, et redirige le HTTP vers le HTTPS.
-4. Ajoute les en-têtes de sécurité habituels (HSTS, X-Content-Type-Options, Referrer-Policy, X-Frame-Options SAMEORIGIN). Si le serveur Node pose déjà certains de ces en-têtes, masque ceux de Node (proxy_hide_header) pour qu'aucun ne soit en double.
-5. Teste toujours la configuration avec `nginx -t` avant de recharger nginx, et ne modifie aucun autre site.
-6. Vérifie (sans retoucher le code si c'est déjà le cas) que le serveur Node lit l'IP du visiteur dans X-Forwarded-For seulement quand la requête vient de 127.0.0.1.
+Mets l'outil en ligne sur {DOMAINE} :
+1. Vérifie que {DOMAINE} pointe vers l'adresse IP de ce serveur. Sinon, arrête-toi et dis-moi d'attendre.
+2. Crée sa configuration nginx dans un nouveau fichier à son nom, À L'IDENTIQUE de instance/systeme/nginx.conf du dépôt commun {DEPOT} (étiquette etape-04 : https://raw.githubusercontent.com/baptistetoog/agent-base/etape-04/instance/systeme/nginx.conf), en remplaçant seulement l'adresse et le port de l'exemple (agentforma.toog-expertise.app, 4910) par {DOMAINE} et {PORT}.
+3. Le cadenas : un certificat Let's Encrypt avec certbot pour cette adresse seulement (e-mail : {EMAIL_ADMIN}), le HTTP redirigé vers le HTTPS.
+Teste toujours avec `nginx -t` avant de recharger nginx, et ne touche à aucun autre site.
 
-Vérifie toi-même : https://{DOMAINE} répond avec un certificat valide et affiche la page de connexion. Mets à jour PROJET.md.
+Vérifie : https://{DOMAINE} affiche la page de connexion, avec le cadenas. Mets à jour PROJET.md.
 ```
 
 **Ce qu'on voit à la fin :** https://{DOMAINE} affiche la page de connexion, avec le cadenas.

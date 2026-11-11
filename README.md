@@ -1,6 +1,6 @@
 # Agent IA : la base commune
 
-Ce dépôt installe, en 11 prompts collés dans Claude Code (étapes 0 à 10), un agent IA **générique et sans marque** sur son propre serveur. C'est la base commune de la formation Toog Expertise : tout le monde part de ce même dépôt et arrive au même outil, qu'on spécialise ensuite pour chaque métier (un agent fiche Google, un agent commercial, un agent de suivi client…).
+Ce dépôt installe, en 10 prompts collés dans Claude Code, un agent IA **générique et sans marque** sur son propre serveur. C'est la base commune de la formation Toog Expertise : tout le monde part de ce même dépôt et arrive au même outil, qu'on spécialise ensuite pour chaque métier (un agent fiche Google, un agent commercial, un agent de suivi client…).
 
 L'outil obtenu :
 
@@ -21,8 +21,7 @@ Les 10 prompts ont été joués tels quels, par des sessions Claude vierges, sur
 
 | # | Étape | Prompt | À la main |
 |---|---|---|---|
-| 0 | Vérifier le serveur et créer le sous-domaine de l'agent | `prompts/00-serveur-et-adresse.md` | le DNS |
-| 1 | Préparer l'espace de l'agent sur le serveur | `prompts/01-espace-serveur.md` | — |
+| 1 | L'adresse de l'agent (DNS) et son environnement sur le serveur | `prompts/01-espace-serveur.md` | le DNS |
 | 2 | Votre abonnement Claude fait tourner l'agent | `prompts/02-connecter-claude.md` | — (explication) |
 | 3 | Créer l'outil et son espace de connexion protégé | `prompts/03-outil-connexion.md` | — |
 | 4 | Mettre l'outil en ligne sur son sous-domaine | `prompts/04-mise-en-ligne.md` | le DNS, son compte admin |
@@ -39,7 +38,7 @@ Les 10 prompts ont été joués tels quels, par des sessions Claude vierges, sur
 2. `python3 outils/rendre.py parametres.md` : les 10 prompts prêts à coller sont créés dans `mes-prompts/`.
 3. Coller les prompts dans Claude Code, dans l'ordre, un par un, en vérifiant « Ce qu'on voit à la fin » avant de passer au suivant.
 
-Il faut : un VPS Linux Ubuntu 24.04 (son adresse IP et son accès root), un nom de domaine, un abonnement Claude (Pro ou Max). Le serveur est déjà branché à Claude Code (`ssh vps`) au module précédent ; l'étape 0 le vérifie et crée le sous-domaine.
+Il faut : son serveur (VPS) déjà branché à Claude Code par `ssh vps` (module précédent), un nom de domaine, un abonnement Claude (Pro ou Max). L'étape 1 crée l'adresse de l'agent et prépare son environnement.
 
 ## La règle des clés
 

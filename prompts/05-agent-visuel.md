@@ -37,7 +37,7 @@ LE CERVEAU (côté serveur, dans un fichier app/agent.js appelé par app/server.
   - de modifier les fichiers cachés et les .md à la racine de /home/{UTILISATEUR} (~/.bashrc, ~/.profile, ~/.local/ qui contient le programme claude…) : sinon il pourrait réécrire claude et contourner l'interdiction de Bash.
   Il garde le droit d'écrire partout ailleurs dans agent/ (y compris agent/.claude/skills/, dont on se servira plus tard).
 - Écris un agent/CLAUDE.md provisoire de quelques lignes : il s'appelle « {NOM_AGENT} », assistant IA généraliste, il répond en français, simplement, et il ne sort jamais de son dossier. (On écrira sa vraie fiche à l'étape suivante.)
-- Tous les fichiers de agent/ appartiennent à {UTILISATEUR} (l'outil devra pouvoir les modifier). Ce sont les règles ci-dessus, pas les droits Linux, qui protègent la configuration : ne redonne donc jamais Bash à l'agent.
+- Tous les fichiers de agent/ appartiennent à {UTILISATEUR} (l'outil devra pouvoir les modifier). Ce sont les règles ci-dessus, pas les droits des fichiers, qui protègent la configuration : ne redonne donc jamais Bash à l'agent.
 - Une seule discussion, commune à toute l'équipe. Elle est continue : garde le session_id renvoyé par Claude et utilise --resume pour les messages suivants. Bouton « Nouvelle discussion » pour repartir de zéro.
 - Un seul travail à la fois. Si un message arrive pendant que l'agent travaille, il est mis en file d'attente. Bouton « Arrêter » qui coupe le travail en cours.
 - Limite de sécurité : 10 minutes maximum par message.
