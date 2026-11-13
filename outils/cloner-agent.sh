@@ -44,7 +44,8 @@ printf '{\n  "nomOutil": "%s",\n  "nomAgent": "Mon agent",\n  "badge": "%s",\n  
 
 # La mémoire du projet
 if [ -f "$B/PROJET.md" ]; then
-  sed -e "s#/home/$BASE\b#/home/$U#g" -e "s#$BASE-app#$U-app#g" -e "s#agents\.lecrystana\.com#$DOM#g" -e "s#4920#$PORT#g" "$B/PROJET.md" > "$H/PROJET.md"
+  sed -e "s#/home/$BASE\b#/home/$U#g" -e "s#$BASE-app#$U-app#g" -e "s#agents\.lecrystana\.com#$DOM#g" -e "s#4920#$PORT#g" \
+      -e "s#-u $BASE\b#-u $U#g" -e "s#-iu $BASE\b#-iu $U#g" -e "s#utilisateur $BASE\b#utilisateur $U#g" -e "s#\`$BASE\`#\`$U\`#g" -e "s#User=$BASE\b#User=$U#g" -e "s#pour $BASE\b#pour $U#g" -e "s#par $BASE\b#par $U#g" -e "s#tant qu.$BASE\b#tant que $U#g" -e "s#tant que $BASE\b#tant que $U#g" "$B/PROJET.md" > "$H/PROJET.md"
   printf '\n## Copie de l'"'"'agent de base (%s)\n\nCréé à partir de %s : même code, mêmes skills, même fiche de contexte. Même compte Claude que la base. Sans historique, mémoire, connexions ni automatisations. À spécialiser.\n' "$(date +%d/%m/%Y)" "$B" >> "$H/PROJET.md"
 fi
 
