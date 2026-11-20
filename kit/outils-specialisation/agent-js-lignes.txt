@@ -1,0 +1,6 @@
+agent.js:225:      if (m && m[1] === 'plateforme' && m[2] === 'lien_public_photo') return { libelle: 'Donne un lien public à une photo', phrase: 'Je prépare la photo…' };
+agent.js:226:      if (m && m[1] === 'plateforme' && m[2] === 'pdf_en_images') return { libelle: 'Transforme un PDF en images', phrase: 'Je transforme le PDF en images…' };
+agent.js:227:      if (m && m[1] === 'plateforme' && m[2] === 'apercu_video') return { libelle: 'Regarde une vidéo', phrase: 'Je regarde la vidéo…' };
+agent.js:352:    args.push('--allowedTools', ...OUTILS_AUTORISES, OUTIL_VALIDATION, 'mcp__plateforme__proposer_automatisation', 'mcp__plateforme__lien_public_photo', 'mcp__plateforme__pdf_en_images', 'mcp__plateforme__apercu_video', ...mcp.noms.map((n) => `mcp__${n}__*`),
+431:  if (/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(hote) && String(req.headers['x-forwarded-proto'] || '') === 'https') process.env.ADRESSE_OUTIL = 'https://' + hote;
+(server.js : ADRESSE_OUTIL = adresse https publique, déduite des en-têtes x-forwarded-host / x-forwarded-proto ; lienPublicPhoto en a besoin.)
